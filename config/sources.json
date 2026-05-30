@@ -1,0 +1,358 @@
+{
+  "sources": [
+    {
+      "name": "GlobeNewswire Public Companies",
+      "group": "global_press_wires",
+      "type": "rss",
+      "url": "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies",
+      "trust": 0.85
+    },
+    {
+      "name": "PRNewswire News Releases",
+      "group": "global_press_wires",
+      "type": "rss",
+      "url": "https://www.prnewswire.com/rss/news-releases-list.rss",
+      "trust": 0.75
+    },
+    {
+      "name": "SEC Current Filings",
+      "group": "regulatory_filings",
+      "type": "atom",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&owner=include&count=100&output=atom",
+      "trust": 0.95
+    },
+    {
+      "name": "Business Wire Technology",
+      "group": "global_press_wires",
+      "type": "rss",
+      "url": "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeEFpQWg==",
+      "trust": 0.80
+    },
+    {
+      "name": "Newsfile Latest Releases",
+      "group": "global_press_wires",
+      "type": "html",
+      "url": "https://www.newsfilecorp.com/search",
+      "trust": 0.72,
+      "include_patterns": ["newsfilecorp.com/release|announces|receives|signs|reports|closes|order|agreement|contract|drilling|semiconductor|ai|data center|defense"],
+      "exclude_patterns": ["login", "subscribe", "privacy", "terms"]
+    },
+    {
+      "name": "ACCESS Newswire Latest Company Releases",
+      "group": "global_press_wires",
+      "type": "html",
+      "url": "https://newsroom.accessnewswire.com/",
+      "trust": 0.72,
+      "include_patterns": ["accessnewswire.com/newsroom|announces|receives|signs|reports|order|agreement|contract|customer|ai|data center|defense|semiconductor"],
+      "exclude_patterns": ["login", "pricing", "privacy", "terms", "contact"]
+    },
+    {
+      "name": "NVIDIA Newsroom",
+      "group": "company_ir_leaders",
+      "type": "html",
+      "url": "https://nvidianews.nvidia.com/news",
+      "trust": 0.92,
+      "include_patterns": ["nvidia|blackwell|rubin|dgx|cuda|ai|data center|gpu"],
+      "exclude_patterns": ["privacy", "subscribe", "contact", "events"]
+    },
+    {
+      "name": "NVIDIA Developer Technical Blog",
+      "group": "technical_blogs",
+      "type": "rss",
+      "url": "https://developer.nvidia.com/blog/feed/",
+      "trust": 0.88,
+      "include_patterns": ["nvidia|developer|technical|architecture|blackwell|rubin|kyber|cuda|nvlink|mgx|gb200|gb300|800 v|hvdc|power|data center|ai factory|rack-scale|silicon photonics|co-packaged optics|liquid cooling"],
+      "exclude_patterns": ["game", "gaming", "omniverse tutorial"]
+    },
+    {
+      "name": "Google Research Blog",
+      "group": "technical_blogs",
+      "type": "rss",
+      "url": "https://research.google/blog/rss/",
+      "trust": 0.82,
+      "include_patterns": ["ai|machine learning|tpu|gemini|data center|infrastructure|robotics|silicon|chip|networking|optimization|power|cooling"],
+      "exclude_patterns": ["education", "health", "responsible ai"]
+    },
+    {
+      "name": "OpenAI News and Research",
+      "group": "technical_blogs",
+      "type": "rss",
+      "url": "https://openai.com/news/rss.xml",
+      "trust": 0.82,
+      "include_patterns": ["model|infrastructure|compute|training|inference|agent|robotics|reasoning|data center|chip|accelerator|gpu"],
+      "exclude_patterns": ["policy", "safety evaluations"]
+    },
+    {
+      "name": "Meta Engineering Blog",
+      "group": "technical_blogs",
+      "type": "rss",
+      "url": "https://engineering.fb.com/feed/",
+      "trust": 0.78,
+      "include_patterns": ["ai|llama|infrastructure|data center|networking|accelerator|training|inference|systems|compute|cooling"],
+      "exclude_patterns": ["mobile app", "privacy"]
+    },
+    {
+      "name": "Semiconductor Engineering",
+      "group": "research_reports",
+      "type": "rss",
+      "url": "https://semiengineering.com/feed/",
+      "trust": 0.76,
+      "include_patterns": ["advanced packaging|hbm|chiplet|silicon photonics|co-packaged optics|power|data center|ai|semiconductor|eda|thermal|interconnect"],
+      "exclude_patterns": ["podcast", "webinar"]
+    },
+    {
+      "name": "Open Compute Project Blog",
+      "group": "research_reports",
+      "type": "html",
+      "url": "https://www.opencompute.org/blog",
+      "trust": 0.78,
+      "include_patterns": ["opencompute.org/blog|ocp|rack|power|cooling|data center|ai|gpu|optical|networking|liquid"],
+      "exclude_patterns": ["privacy", "events", "membership"]
+    },
+    {
+      "name": "arXiv AI Systems Infrastructure",
+      "group": "research_papers",
+      "type": "atom",
+      "url": "https://export.arxiv.org/api/query?search_query=all:%22AI%20infrastructure%22+OR+all:%22GPU%20cluster%22+OR+all:%22data%20center%20power%22+OR+all:%22silicon%20photonics%22+OR+all:%22co-packaged%20optics%22&sortBy=submittedDate&sortOrder=descending&max_results=25",
+      "trust": 0.65,
+      "include_patterns": ["ai infrastructure|gpu cluster|data center|datacenter|power|cooling|silicon photonics|co-packaged optics|accelerator|inference|training"],
+      "exclude_patterns": ["survey of surveys", "education"]
+    },
+    {
+      "name": "AMD Press Releases RSS",
+      "group": "company_ir_leaders",
+      "type": "rss",
+      "url": "https://ir.amd.com/news-events/press-releases/rss",
+      "trust": 0.92,
+      "include_patterns": ["amd|instinct|epyc|ryzen|ai|data center|gpu|cpu"],
+      "exclude_patterns": ["presentation", "conference"]
+    },
+    {
+      "name": "Broadcom Investor News",
+      "group": "company_ir_leaders",
+      "type": "html",
+      "url": "https://www.broadcom.com/company/news/product-releases",
+      "trust": 0.90,
+      "include_patterns": ["broadcom|custom silicon|vmware|ai|networking|switch|semiconductor"],
+      "exclude_patterns": ["email alerts", "privacy", "sec filings", "financial reports"]
+    },
+    {
+      "name": "Marvell Investor News",
+      "group": "company_ir_leaders",
+      "type": "html",
+      "url": "https://investor.marvell.com/news-releases",
+      "trust": 0.90,
+      "include_patterns": ["marvell|custom silicon|optical|silicon photonics|ai|data center|ethernet"],
+      "exclude_patterns": ["email alerts", "privacy", "sec filings", "financial reports"]
+    },
+    {
+      "name": "Snowflake Press Releases",
+      "group": "company_ir_leaders",
+      "type": "html",
+      "url": "https://www.snowflake.com/en/news/press-releases/",
+      "trust": 0.90,
+      "include_patterns": ["snowflake|financial results|earnings|guidance|product revenue|ai data cloud|cortex|snowpark"],
+      "exclude_patterns": ["privacy", "events", "contact"]
+    },
+    {
+      "name": "Evertiq Global Electronics News",
+      "group": "industry_vertical_media",
+      "type": "html",
+      "url": "https://evertiq.com/news/",
+      "trust": 0.75,
+      "include_patterns": ["semiconductor|photonics|optical|data centre|data center|ai|supply|manufacturing|capacity"],
+      "exclude_patterns": ["expo", "advertise", "privacy"]
+    },
+    {
+      "name": "Data Center Dynamics",
+      "group": "industry_vertical_media",
+      "type": "html",
+      "url": "https://www.datacenterdynamics.com/en/news/",
+      "trust": 0.72,
+      "include_patterns": ["data center|datacenter|power|cooling|ai|gpu|capacity|campus|megawatt"],
+      "exclude_patterns": ["events", "advertise", "privacy"]
+    },
+    {
+      "name": "HPCwire",
+      "group": "industry_vertical_media",
+      "type": "html",
+      "url": "https://www.hpcwire.com/",
+      "trust": 0.70,
+      "include_patterns": ["ai|hpc|supercomputing|gpu|data center|cluster|nvidia|amd|infiniband"],
+      "exclude_patterns": ["events", "sponsored", "privacy"]
+    },
+    {
+      "name": "The Robot Report",
+      "group": "industry_vertical_media",
+      "type": "html",
+      "url": "https://www.therobotreport.com/",
+      "trust": 0.68,
+      "include_patterns": ["robot|robotics|drone|autonomous|manufacturing|defense|funding|customer"],
+      "exclude_patterns": ["webinar", "subscribe", "privacy"]
+    },
+    {
+      "name": "Breaking Defense",
+      "group": "industry_vertical_media",
+      "type": "html",
+      "url": "https://breakingdefense.com/",
+      "trust": 0.70,
+      "include_patterns": ["contract|award|drone|autonomous|army|air force|defense|pentagon|production"],
+      "exclude_patterns": ["events", "advertise", "privacy"]
+    },
+    {
+      "name": "MINING.COM",
+      "group": "industry_vertical_media",
+      "type": "html",
+      "url": "https://www.mining.com/",
+      "trust": 0.68,
+      "include_patterns": ["rare earth|lithium|copper|uranium|critical minerals|mine|offtake|supply|project"],
+      "exclude_patterns": ["advertise", "newsletter", "privacy"]
+    }
+  ],
+  "market_sources": [
+    {
+      "name": "U.S. Treasury Daily Yield Curve XML",
+      "group": "rates",
+      "type": "xml",
+      "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month=202605",
+      "purpose": "Risk-free curve and rate regime."
+    },
+    {
+      "name": "Yahoo U.S. Dollar Index Chart API",
+      "group": "fx",
+      "type": "api",
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?range=2mo&interval=1d",
+      "purpose": "Dollar pressure and global liquidity context."
+    },
+    {
+      "name": "Cboe VIX Historical CSV",
+      "group": "volatility",
+      "type": "csv",
+      "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+      "purpose": "Equity volatility regime."
+    },
+    {
+      "name": "Yahoo SPY Chart API",
+      "group": "equity_indices",
+      "type": "api",
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=2mo&interval=1d",
+      "purpose": "S&P 500 ETF daily price confirmation."
+    },
+    {
+      "name": "Yahoo QQQ Chart API",
+      "group": "equity_indices",
+      "type": "api",
+      "url": "https://query1.finance.yahoo.com/v8/finance/chart/QQQ?range=2mo&interval=1d",
+      "purpose": "Nasdaq/AI risk appetite confirmation."
+    },
+    {
+      "name": "Federal Reserve All Press Releases RSS",
+      "group": "macro_event_feeds",
+      "type": "rss",
+      "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+      "purpose": "Fed policy, supervision, and liquidity event monitoring."
+    },
+    {
+      "name": "Federal Reserve Monetary Policy RSS",
+      "group": "macro_event_feeds",
+      "type": "rss",
+      "url": "https://www.federalreserve.gov/feeds/press_monetary.xml",
+      "purpose": "FOMC and monetary-policy event monitoring."
+    },
+    {
+      "name": "BLS CPI Public API",
+      "group": "inflation",
+      "type": "api",
+      "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/CUUR0000SA0",
+      "purpose": "Consumer inflation time series."
+    },
+    {
+      "name": "BLS PPI Final Demand Public API",
+      "group": "inflation",
+      "type": "api",
+      "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/WPUFD4",
+      "purpose": "Producer inflation time series."
+    },
+    {
+      "name": "BLS Unemployment Rate Public API",
+      "group": "labor",
+      "type": "api",
+      "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/LNS14000000",
+      "purpose": "Unemployment rate time series."
+    },
+    {
+      "name": "BEA News Release RSS",
+      "group": "macro_event_feeds",
+      "type": "rss",
+      "url": "https://apps.bea.gov/rss/rss.xml",
+      "purpose": "GDP, PCE, trade, income, and national accounts release monitoring."
+    },
+    {
+      "name": "Census Economic Indicators RSS",
+      "group": "macro_event_feeds",
+      "type": "rss",
+      "url": "https://www.census.gov/economic-indicators/indicator.xml",
+      "purpose": "Retail sales, housing, durable goods, construction, and trade indicator monitoring."
+    },
+    {
+      "name": "White House Presidential Actions RSS",
+      "group": "policy_event_feeds",
+      "type": "rss",
+      "url": "https://www.whitehouse.gov/presidential-actions/feed/",
+      "purpose": "Official White House executive orders, memoranda, proclamations, sanctions, tariffs, AI, semiconductor, energy, defense, and industrial-policy monitoring."
+    },
+    {
+      "name": "White House Executive Orders RSS",
+      "group": "policy_event_feeds",
+      "type": "rss",
+      "url": "https://www.whitehouse.gov/presidential-actions/executive-orders/feed/",
+      "purpose": "Official executive-order monitoring for market-moving policy changes."
+    },
+    {
+      "name": "White House Briefings and Statements RSS",
+      "group": "policy_event_feeds",
+      "type": "rss",
+      "url": "https://www.whitehouse.gov/briefings-statements/feed/",
+      "purpose": "Official White House statements and releases that may affect sectors, trade, regulation, and geopolitics."
+    },
+    {
+      "name": "White House Remarks RSS",
+      "group": "policy_event_feeds",
+      "type": "rss",
+      "url": "https://www.whitehouse.gov/remarks/feed/",
+      "purpose": "Official public remarks feed for President and administration comments with possible market impact."
+    },
+    {
+      "name": "Trump Truth Social Mirror RSS",
+      "group": "policy_event_feeds",
+      "type": "rss",
+      "url": "https://www.trumpstruth.org/feed",
+      "purpose": "Unofficial third-party mirror of @realDonaldTrump Truth Social posts. Treat as fast policy/social-media monitoring, not as an official government source.",
+      "status": "third_party"
+    },
+    {
+      "name": "Nasdaq Earnings Calendar API",
+      "group": "earnings_calendar",
+      "type": "api",
+      "url": "https://api.nasdaq.com/api/calendar/earnings",
+      "purpose": "Public earnings calendar used to monitor only focused watchlist companies during earnings season.",
+      "status": "connected_public_endpoint"
+    },
+    {
+      "name": "Flow God X Options Flow",
+      "group": "options_flow_feeds",
+      "type": "x_account",
+      "url": "https://x.com/FL0WG0D",
+      "purpose": "Public X account used as an unusual-options-flow watch source. Requires X/Jina/API ingestion before it can be treated as connected evidence.",
+      "status": "requires_x_or_jina_api"
+    },
+    {
+      "name": "EIA Petroleum Status API",
+      "group": "energy",
+      "type": "api",
+      "url": "https://api.eia.gov/v2/petroleum/pri/spt/data/",
+      "purpose": "Oil price and energy regime. May require API key for full use.",
+      "status": "requires_key"
+    }
+  ]
+}

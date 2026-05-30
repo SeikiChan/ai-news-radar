@@ -1,0 +1,316 @@
+{
+  "companies": [
+    {
+      "ticker": "NVDA",
+      "name": "NVIDIA",
+      "aliases": ["NVIDIA", "Nvidia", "NVDA", "Blackwell", "Rubin", "CUDA", "NVLink", "DGX"],
+      "themes": ["ai_accelerators", "ai_datacenter", "market_leader"]
+    },
+    {
+      "ticker": "AVGO",
+      "name": "Broadcom",
+      "aliases": ["Broadcom", "AVGO", "custom AI accelerator", "Jericho", "Tomahawk", "VMware"],
+      "themes": ["custom_silicon", "networking", "ai_datacenter", "market_leader"]
+    },
+    {
+      "ticker": "MRVL",
+      "name": "Marvell",
+      "aliases": ["Marvell", "MRVL", "custom silicon", "silicon photonics", "DSP", "PAM4"],
+      "themes": ["custom_silicon", "silicon_photonics", "ai_datacenter"]
+    },
+    {
+      "ticker": "AMD",
+      "name": "Advanced Micro Devices",
+      "aliases": ["AMD", "Advanced Micro Devices", "Instinct", "MI300", "MI350", "EPYC"],
+      "themes": ["ai_accelerators", "cpu", "ai_datacenter"]
+    },
+    {
+      "ticker": "TSM",
+      "name": "Taiwan Semiconductor Manufacturing",
+      "aliases": ["TSMC", "Taiwan Semiconductor", "TSM", "CoWoS", "advanced packaging"],
+      "themes": ["foundry", "advanced_packaging", "ai_supply_chain"]
+    },
+    {
+      "ticker": "ASML",
+      "name": "ASML",
+      "aliases": ["ASML", "EUV", "High-NA", "lithography"],
+      "themes": ["semiconductor_equipment", "lithography", "ai_supply_chain"]
+    },
+    {
+      "ticker": "AMAT",
+      "name": "Applied Materials",
+      "aliases": ["Applied Materials", "AMAT", "wafer fab equipment"],
+      "themes": ["semiconductor_equipment", "ai_supply_chain"]
+    },
+    {
+      "ticker": "LRCX",
+      "name": "Lam Research",
+      "aliases": ["Lam Research", "LRCX", "etch", "deposition"],
+      "themes": ["semiconductor_equipment", "memory", "ai_supply_chain"]
+    },
+    {
+      "ticker": "KLAC",
+      "name": "KLA",
+      "aliases": ["KLA", "KLAC", "process control", "inspection", "metrology"],
+      "themes": ["semiconductor_equipment", "process_control", "ai_supply_chain"]
+    },
+    {
+      "ticker": "MU",
+      "name": "Micron",
+      "aliases": ["Micron", "MU", "HBM", "high bandwidth memory", "DRAM"],
+      "themes": ["memory", "hbm", "ai_supply_chain"]
+    },
+    {
+      "ticker": "ARM",
+      "name": "Arm Holdings",
+      "aliases": ["Arm", "ARM Holdings", "ARM", "Neoverse"],
+      "themes": ["cpu_ip", "edge_ai", "ai_datacenter"]
+    },
+    {
+      "ticker": "SMCI",
+      "name": "Super Micro Computer",
+      "aliases": ["Supermicro", "Super Micro", "SMCI", "AI server", "liquid-cooled server"],
+      "themes": ["ai_servers", "ai_datacenter"]
+    },
+    {
+      "ticker": "DELL",
+      "name": "Dell Technologies",
+      "aliases": ["Dell", "Dell Technologies", "PowerEdge", "AI factory"],
+      "themes": ["ai_servers", "enterprise_ai"]
+    },
+    {
+      "ticker": "ANET",
+      "name": "Arista Networks",
+      "aliases": ["Arista", "Arista Networks", "ANET", "Ethernet AI", "800G"],
+      "themes": ["networking", "ai_datacenter"]
+    },
+    {
+      "ticker": "VRT",
+      "name": "Vertiv",
+      "aliases": ["Vertiv", "VRT", "data center power", "thermal management", "liquid cooling"],
+      "themes": ["ai_power", "cooling", "ai_datacenter"]
+    },
+    {
+      "ticker": "ADI",
+      "name": "Analog Devices",
+      "aliases": ["Analog Devices", "ADI"],
+      "themes": ["power_management", "analog_semiconductors", "ai_power"]
+    },
+    {
+      "ticker": "IFNNY",
+      "name": "Infineon Technologies",
+      "aliases": ["Infineon", "Infineon Technologies", "IFNNY"],
+      "themes": ["power_semiconductors", "ai_power", "hvdc"]
+    },
+    {
+      "ticker": "MPWR",
+      "name": "Monolithic Power Systems",
+      "aliases": ["Monolithic Power Systems", "MPS", "MPWR"],
+      "themes": ["power_management", "ai_power", "semiconductors"]
+    },
+    {
+      "ticker": "NVTS",
+      "name": "Navitas Semiconductor",
+      "aliases": ["Navitas", "Navitas Semiconductor", "GaNFast", "GeneSiC", "NVTS"],
+      "themes": ["gan", "sic", "power_semiconductors", "ai_power"]
+    },
+    {
+      "ticker": "ON",
+      "name": "onsemi",
+      "aliases": ["onsemi", "On Semiconductor"],
+      "themes": ["power_semiconductors", "sic", "ai_power"]
+    },
+    {
+      "ticker": "RNECY",
+      "name": "Renesas Electronics",
+      "aliases": ["Renesas", "Renesas Electronics", "RNECY"],
+      "themes": ["power_management", "embedded", "ai_power"]
+    },
+    {
+      "ticker": "ROHCY",
+      "name": "ROHM",
+      "aliases": ["ROHM", "Rohm Semiconductor", "ROHCY"],
+      "themes": ["power_semiconductors", "sic", "ai_power"]
+    },
+    {
+      "ticker": "STM",
+      "name": "STMicroelectronics",
+      "aliases": ["STMicroelectronics", "STMicro", "STM"],
+      "themes": ["power_semiconductors", "sic", "ai_power"]
+    },
+    {
+      "ticker": "TXN",
+      "name": "Texas Instruments",
+      "aliases": ["Texas Instruments", "TI.com", "TXN"],
+      "themes": ["power_management", "analog_semiconductors", "ai_power"]
+    },
+    {
+      "ticker": "FLEX",
+      "name": "Flex",
+      "aliases": ["Flex", "Flex Power", "Flex Power Modules", "FLEX"],
+      "themes": ["power_system_components", "electronics_manufacturing", "ai_power"]
+    },
+    {
+      "ticker": "DELTY",
+      "name": "Delta Electronics",
+      "aliases": ["Delta Electronics", "Delta", "DELTY"],
+      "themes": ["power_system_components", "cooling", "ai_power"]
+    },
+    {
+      "ticker": "SBGSY",
+      "name": "Schneider Electric",
+      "aliases": ["Schneider Electric", "Schneider", "SBGSY"],
+      "themes": ["electrical_equipment", "data_center_power", "ai_power"]
+    },
+    {
+      "ticker": "ETN",
+      "name": "Eaton",
+      "aliases": ["Eaton", "ETN", "electrical equipment", "switchgear", "power management"],
+      "themes": ["ai_power", "electrification"]
+    },
+    {
+      "ticker": "CEG",
+      "name": "Constellation Energy",
+      "aliases": ["Constellation Energy", "CEG", "nuclear power", "data center power"],
+      "themes": ["ai_power", "nuclear_power"]
+    },
+    {
+      "ticker": "GEV",
+      "name": "GE Vernova",
+      "aliases": ["GE Vernova", "GEV", "grid equipment", "gas turbine", "power demand"],
+      "themes": ["ai_power", "grid", "energy_infrastructure"]
+    },
+    {
+      "ticker": "MSFT",
+      "name": "Microsoft",
+      "aliases": ["Microsoft", "MSFT", "Azure", "OpenAI", "Copilot"],
+      "themes": ["hyperscaler", "ai_software", "ai_datacenter"]
+    },
+    {
+      "ticker": "GOOGL",
+      "name": "Alphabet",
+      "aliases": ["Alphabet", "Google", "GOOGL", "Google Cloud", "TPU", "Gemini"],
+      "themes": ["hyperscaler", "ai_software", "custom_silicon"]
+    },
+    {
+      "ticker": "AMZN",
+      "name": "Amazon",
+      "aliases": ["Amazon", "AMZN", "AWS", "Trainium", "Inferentia"],
+      "themes": ["hyperscaler", "cloud", "custom_silicon"]
+    },
+    {
+      "ticker": "META",
+      "name": "Meta Platforms",
+      "aliases": ["Meta", "Meta Platforms", "META", "Llama", "AI infrastructure"],
+      "themes": ["hyperscaler", "ai_software", "ai_datacenter"]
+    },
+    {
+      "ticker": "ORCL",
+      "name": "Oracle",
+      "aliases": ["Oracle", "ORCL", "Oracle Cloud", "OCI"],
+      "themes": ["cloud", "ai_datacenter"]
+    },
+    {
+      "ticker": "SNOW",
+      "name": "Snowflake",
+      "aliases": ["Snowflake", "SNOW", "AI Data Cloud", "Snowpark", "Cortex AI"],
+      "themes": ["cloud", "ai_software", "data_infrastructure"]
+    },
+    {
+      "ticker": "COHR",
+      "name": "Coherent",
+      "aliases": ["Coherent", "COHR", "optical transceiver", "laser", "800G", "1.6T"],
+      "themes": ["optical_components", "silicon_photonics", "ai_datacenter"]
+    },
+    {
+      "ticker": "LITE",
+      "name": "Lumentum",
+      "aliases": ["Lumentum", "LITE", "laser", "datacom", "optical components"],
+      "themes": ["optical_components", "silicon_photonics"]
+    },
+    {
+      "ticker": "CIEN",
+      "name": "Ciena",
+      "aliases": ["Ciena", "CIEN", "coherent optics", "optical networking"],
+      "themes": ["optical_networking", "ai_datacenter"]
+    },
+    {
+      "ticker": "GLW",
+      "name": "Corning",
+      "aliases": ["Corning", "GLW", "fiber", "optical fiber"],
+      "themes": ["fiber", "ai_datacenter"]
+    },
+    {
+      "ticker": "PLTR",
+      "name": "Palantir",
+      "aliases": ["Palantir", "PLTR", "AIP", "Gotham", "Foundry"],
+      "themes": ["defense_ai", "enterprise_ai", "government_software"]
+    },
+    {
+      "ticker": "RTX",
+      "name": "RTX",
+      "aliases": ["RTX", "Raytheon", "Pratt & Whitney", "Collins Aerospace"],
+      "themes": ["defense", "aerospace"]
+    },
+    {
+      "ticker": "LMT",
+      "name": "Lockheed Martin",
+      "aliases": ["Lockheed Martin", "LMT", "F-35", "missile defense"],
+      "themes": ["defense", "aerospace"]
+    },
+    {
+      "ticker": "NOC",
+      "name": "Northrop Grumman",
+      "aliases": ["Northrop Grumman", "NOC", "B-21", "space systems"],
+      "themes": ["defense", "space"]
+    },
+    {
+      "ticker": "GD",
+      "name": "General Dynamics",
+      "aliases": ["General Dynamics", "GD", "Gulfstream", "combat systems"],
+      "themes": ["defense", "aerospace"]
+    },
+    {
+      "ticker": "KTOS",
+      "name": "Kratos Defense",
+      "aliases": ["Kratos", "KTOS", "tactical drone", "unmanned systems"],
+      "themes": ["defense", "drones", "autonomy"]
+    },
+    {
+      "ticker": "AVAV",
+      "name": "AeroVironment",
+      "aliases": ["AeroVironment", "AVAV", "Switchblade", "loitering munition", "drone"],
+      "themes": ["defense", "drones", "autonomy"]
+    },
+    {
+      "ticker": "ISRG",
+      "name": "Intuitive Surgical",
+      "aliases": ["Intuitive Surgical", "ISRG", "da Vinci", "surgical robot"],
+      "themes": ["robotics", "medical_technology"]
+    },
+    {
+      "ticker": "TER",
+      "name": "Teradyne",
+      "aliases": ["Teradyne", "TER", "Universal Robots", "Mobile Industrial Robots", "semiconductor test"],
+      "themes": ["robotics", "semiconductor_test"]
+    },
+    {
+      "ticker": "ROK",
+      "name": "Rockwell Automation",
+      "aliases": ["Rockwell Automation", "ROK", "factory automation"],
+      "themes": ["industrial_ai", "automation"]
+    },
+    {
+      "ticker": "CAT",
+      "name": "Caterpillar",
+      "aliases": ["Caterpillar", "CAT", "autonomous mining", "heavy equipment"],
+      "themes": ["industrial_ai", "infrastructure"]
+    },
+    {
+      "ticker": "HON",
+      "name": "Honeywell",
+      "aliases": ["Honeywell", "HON", "industrial automation", "aerospace systems"],
+      "themes": ["industrial_ai", "aerospace", "automation"]
+    }
+  ]
+}
