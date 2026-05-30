@@ -35,7 +35,6 @@ def build_daily_brief(
 ) -> dict[str, object]:
     report_items = _analyst_report_items(candidates)
     urgent = [item for item in report_items if item.get("action") == "research_now"]
-    new_discoveries = [item for item in candidates if item.get("status") == "discovered"]
     regime = market_regime or _disconnected_market_regime()
     earnings = earnings_calendar or _disconnected_earnings_calendar()
     dynamic_watchlist = _dynamic_watchlist_items(candidates, regime)

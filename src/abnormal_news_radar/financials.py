@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
 USER_AGENT = "AI-News-Radar/0.1 research-tool contact=local@example.com"
@@ -30,9 +29,11 @@ def enrich_candidates_with_financial_snapshots(
     fetch = fetcher or _fetch_text
     tickers = _candidate_tickers(candidates)[:max_tickers]
     snapshots: dict[str, dict[str, object]] = {}
-    cik_map = _load_cik_map(fetch)
-    for ticker in tickers:
-        snapshots[ticker] = fetch_financial_snapshot(ticker, cik_map, fetch)
+    # Skip the SEC CIK-map download entirely when no candidate has a ticker.
+    if tickers:
+        cik_map = _load_cik_map(fetch)
+        for ticker in tickers:
+            snapshots[ticker] = fetch_financial_snapshot(ticker, cik_map, fetch)
 
     enriched = []
     for candidate in candidates:

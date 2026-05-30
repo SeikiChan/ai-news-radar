@@ -22,10 +22,11 @@ from .discovery import discover_candidate
 from .earnings_analysis import enrich_candidates_with_earnings_analysis
 from .earnings_calendar import collect_earnings_calendar
 from .expectations import enrich_candidates_with_expectation_check
-from .feeds import fetch_all
+from .feeds import fetch_sources
 from .financials import enrich_candidates_with_financial_snapshots
 from .impact import enrich_candidates_with_impact_assessment
 from .market import collect_market_regime
+from .net import configure_logging
 from .options_chain import enrich_candidates_with_options_chain_anomalies
 from .options_flow import enrich_candidates_with_options_flow
 from .price_volume import enrich_candidates_with_market_confirmation
@@ -41,8 +42,8 @@ from .storage import (
     load_signal_rows,
     save_review_state,
 )
-from .ticker_resolver import enrich_candidates_with_ticker_resolution
 from .technology_intel import enrich_candidates_with_technology_intel
+from .ticker_resolver import enrich_candidates_with_ticker_resolution
 from .timeliness import article_timeliness
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +88,7 @@ LAST_EARNINGS_CALENDAR: dict[str, object] = {
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
+    configure_logging()
     _start_initial_scan_once()
     _start_scheduler_once()
     server = ThreadingHTTPServer((host, port), RadarRequestHandler)
@@ -218,13 +220,12 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
     watchlist_path = PROJECT_ROOT / "config" / "watchlist.json"
     output_path = PROJECT_ROOT / "data" / "signals.jsonl"
     candidate_path = PROJECT_ROOT / "data" / "candidates.jsonl"
-    review_path = PROJECT_ROOT / "data" / "review_state.json"
 
     sources = load_sources(source_path)
-    market_sources = load_market_sources(source_path)
     watchlist = load_watchlist(watchlist_path)
     market_regime = _market_regime_payload()
-    articles, errors = fetch_all(sources, limit_per_source=limit_per_source)
+    articles, source_health = fetch_sources(sources, limit_per_source=limit_per_source)
+    errors = [f"{row['source']}: {row['error']}" for row in source_health if row["status"] == "error"]
 
     signals = []
     candidates = []
@@ -267,6 +268,7 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
         "saved_count": saved_count,
         "saved_candidate_count": saved_candidate_count,
         "errors": errors,
+        "source_health": source_health,
         "signals": [asdict(signal) for signal in selected],
         "candidates": selected_candidate_rows,
         "articles": [_article_payload(article) for article in articles],

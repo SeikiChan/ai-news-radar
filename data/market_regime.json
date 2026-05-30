@@ -1,9 +1,9 @@
 {
-  "status": "connected",
+  "status": "degraded",
   "regime": "risk_on",
   "score": 5,
-  "summary": "宏观环境支持成长股和高 beta 标的。宏观分数=5；核心数据连接=5/5。主因：标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善。",
-  "generated_at": "2026-05-30T05:27:32.355859+00:00",
+  "summary": "宏观环境支持成长股和高 beta 标的。宏观分数=5；核心数据连接=3/5。主因：标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善。 来源错误数：1。",
+  "generated_at": "2026-05-30T17:15:22.733338+00:00",
   "drivers": [
     "标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善",
     "纳斯达克 100 ETF 近 20 个观察日上涨 10.6%，风险偏好正在改善",
@@ -39,85 +39,6 @@
     "analyst_standard": "结论必须能追溯到来源、原文、关键词、分数和缺失确认；缺少价格/成交量、财务影响和估值检查时，只能是观察或研究，不是买入建议。"
   },
   "metrics": [
-    {
-      "label": "Treasury 10Y yield",
-      "category": "yield",
-      "value": 4.45,
-      "unit": "pct",
-      "as_of": "2026-05-29",
-      "source": "U.S. Treasury Daily Yield Curve XML",
-      "source_url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month=202605",
-      "status": "ok",
-      "sparkline": [
-        9.68,
-        29.03,
-        22.58,
-        0.0,
-        16.13,
-        6.45,
-        19.35,
-        32.26,
-        32.26,
-        35.48,
-        74.19,
-        80.65,
-        100.0,
-        67.74,
-        67.74,
-        64.52,
-        45.16,
-        38.71,
-        29.03,
-        29.03
-      ],
-      "calculation": "5obs/20obs compare the latest valid observation with the value 5/20 valid observations earlier.",
-      "change_5d_bp": -12.0,
-      "key": "us10y"
-    },
-    {
-      "label": "Treasury 2Y yield",
-      "category": "yield",
-      "value": 3.98,
-      "unit": "pct",
-      "as_of": "2026-05-29",
-      "source": "U.S. Treasury Daily Yield Curve XML",
-      "source_url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month=202605",
-      "status": "ok",
-      "sparkline": [
-        3.85,
-        30.77,
-        23.08,
-        0.0,
-        19.23,
-        11.54,
-        30.77,
-        50.0,
-        42.31,
-        50.0,
-        84.62,
-        76.92,
-        100.0,
-        65.38,
-        80.77,
-        100.0,
-        53.85,
-        50.0,
-        46.15,
-        42.31
-      ],
-      "calculation": "5obs/20obs compare the latest valid observation with the value 5/20 valid observations earlier.",
-      "change_5d_bp": -10.0,
-      "key": "us2y"
-    },
-    {
-      "label": "2s10s Treasury curve",
-      "value": 47.0,
-      "unit": "bp",
-      "source": "FRED/Treasury",
-      "interpretation": "normal",
-      "status": "ok",
-      "key": "yield_curve_2s10s"
-    },
     {
       "label": "VIX",
       "category": "volatility",
@@ -308,9 +229,9 @@
       "name": "U.S. Treasury Daily Yield Curve XML",
       "group": "rates",
       "type": "xml",
-      "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month=202605",
-      "status": "ok",
-      "message": ""
+      "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value={yyyy}",
+      "status": "error",
+      "message": "Treasury XML contains no 2Y/10Y observations"
     },
     {
       "name": "Yahoo U.S. Dollar Index Chart API",
@@ -569,19 +490,19 @@
     {
       "source": "Trump Truth Social Mirror RSS",
       "title": "[No Title] - Post from May 30, 2026",
-      "link": "https://www.trumpstruth.org/statuses/38881",
-      "published": "Sat, 30 May 2026 04:46:27 +0000",
-      "summary": "RT: https://truthsocial.com/users/realDonaldTrump/statuses/116661706730496718",
+      "link": "https://www.trumpstruth.org/statuses/38904",
+      "published": "Sat, 30 May 2026 17:03:20 +0000",
+      "summary": "",
       "policy_importance": 1,
       "policy_topics": [],
       "market_read": "政策源事件：保留原文链接，等待主题匹配。"
     },
     {
       "source": "Trump Truth Social Mirror RSS",
-      "title": "[No Title] - Post from May 30, 2026",
-      "link": "https://www.trumpstruth.org/statuses/38882",
-      "published": "Sat, 30 May 2026 04:46:14 +0000",
-      "summary": "",
+      "title": "Tom Brady is a great player, and great guy!President DJT",
+      "link": "https://www.trumpstruth.org/statuses/38903",
+      "published": "Sat, 30 May 2026 16:56:00 +0000",
+      "summary": "Tom Brady is a great player, and great guy!President DJT",
       "policy_importance": 1,
       "policy_topics": [],
       "market_read": "政策源事件：保留原文链接，等待主题匹配。"
@@ -593,6 +514,8 @@
     "宏观环境只影响跟踪力度，不替代公司证据、估值和流动性检查。"
   ],
   "needed_feeds": [
+    "10Y Treasury yield",
+    "2Y Treasury yield",
     "CPI",
     "Unemployment rate"
   ]

@@ -1,10 +1,11 @@
 import unittest
-from unittest import mock
 import urllib.error
 import xml.etree.ElementTree as ET
+from unittest import mock
 
-from src.abnormal_news_radar.feeds import _parse_html_links, _parse_rss, fetch_feed
-from src.abnormal_news_radar.model import Source
+from src.abnormal_news_radar import feeds
+from src.abnormal_news_radar.feeds import _parse_html_links, _parse_rss, fetch_all, fetch_feed, fetch_sources
+from src.abnormal_news_radar.model import Article, Source
 
 
 class HtmlFeedTests(unittest.TestCase):
@@ -115,6 +116,42 @@ class HtmlFeedTests(unittest.TestCase):
             articles = fetch_feed(source)
 
         self.assertEqual(articles, [])
+
+
+class FetchAllTests(unittest.TestCase):
+    def _sources(self):
+        return [
+            Source(name="A", type="rss", url="https://a"),
+            Source(name="B", type="rss", url="https://b"),
+            Source(name="C", type="rss", url="https://c"),
+        ]
+
+    def _fake_fetch_feed(self, source):
+        if source.name == "B":
+            raise RuntimeError("boom")
+        return [Article(source=source.name, source_trust=0.8, title=f"{source.name} headline", link=f"https://{source.name}/1")]
+
+    def test_fetch_sources_preserves_order_and_reports_health(self):
+        with mock.patch.object(feeds, "fetch_feed", self._fake_fetch_feed):
+            articles, health = fetch_sources(self._sources())
+
+        # Order preserved despite concurrency (A then C; B failed).
+        self.assertEqual([a.source for a in articles], ["A", "C"])
+        statuses = {row["source"]: row["status"] for row in health}
+        self.assertEqual(statuses, {"A": "ok", "B": "error", "C": "ok"})
+        b_row = next(row for row in health if row["source"] == "B")
+        self.assertIn("boom", b_row["error"])
+        self.assertIn("latency_ms", b_row)
+
+    def test_fetch_all_keeps_backward_compatible_shape(self):
+        with mock.patch.object(feeds, "fetch_feed", self._fake_fetch_feed):
+            articles, errors = fetch_all(self._sources())
+
+        self.assertEqual(len(articles), 2)
+        self.assertEqual(errors, ["B: boom"])
+
+    def test_fetch_sources_empty_input(self):
+        self.assertEqual(fetch_sources([]), ([], []))
 
 
 class _FakeResponse:

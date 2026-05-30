@@ -7,12 +7,13 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from html import unescape
 from io import StringIO
-from urllib.request import Request, urlopen
 
 from .model import MarketSource
+from .net import fetch_text
 
-USER_AGENT = "AI-News-Radar/0.1 (+local-market-regime)"
-FETCH_TIMEOUT_SECONDS = 6
+# Several public macro endpoints (Treasury full-year XML especially) are slow;
+# give them room and let the shared client retry transient failures.
+FETCH_TIMEOUT_SECONDS = 15
 
 POLICY_EVENT_TOPICS: dict[str, tuple[str, int, str]] = {
     "tariff": ("tariffs", 3, "关税/贸易摩擦可能改变进口成本、供应链和风险偏好。"),
@@ -212,10 +213,7 @@ def _parse_source(source: MarketSource, raw: str) -> dict[str, object]:
 
 
 def _fetch_text(url: str) -> str:
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
-    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        raw = response.read()
-    return raw.decode("utf-8-sig", errors="replace")
+    return fetch_text(url, encoding="utf-8-sig", timeout=FETCH_TIMEOUT_SECONDS)
 
 
 def _csv_series_metric(
@@ -256,7 +254,7 @@ def _yahoo_chart_metric(source: MarketSource, raw: str, symbol: str, label: str)
     timestamps = result.get("timestamp") or []
     closes = result.get("indicators", {}).get("quote", [{}])[0].get("close") or []
     series = []
-    for ts, close in zip(timestamps, closes):
+    for ts, close in zip(timestamps, closes, strict=False):
         value = _to_float(close)
         if value is not None:
             date = datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()

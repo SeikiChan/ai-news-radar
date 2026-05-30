@@ -5,3 +5,10 @@ __pycache__/
 data/*.jsonl
 data/*.db
 data/*.sqlite
+
+# Build / packaging artifacts
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/

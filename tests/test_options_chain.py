@@ -2,7 +2,10 @@ import json
 import time
 import unittest
 
-from src.abnormal_news_radar.options_chain import assess_public_options_chain, enrich_candidates_with_options_chain_anomalies
+from src.abnormal_news_radar.options_chain import (
+    assess_public_options_chain,
+    enrich_candidates_with_options_chain_anomalies,
+)
 
 
 class OptionsChainTests(unittest.TestCase):

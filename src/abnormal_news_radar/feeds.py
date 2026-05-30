@@ -1,20 +1,29 @@
 from __future__ import annotations
 
 import html
-import os
+import logging
 import re
 import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlparse
 
 from .model import Article, Source
+from .net import expand_url_template, user_agent
 
 TAG_RE = re.compile(r"<[^>]+>")
+
+logger = logging.getLogger("ai_news_radar")
+
+#: Default thread-pool width for the multi-source scan. Public feeds are I/O
+#: bound, so a modest pool turns a slow serial sweep into a parallel one without
+#: hammering any single host.
+DEFAULT_MAX_WORKERS = 8
 
 
 def strip_html(value: str) -> str:
@@ -24,12 +33,9 @@ def strip_html(value: str) -> str:
 
 
 def fetch_feed(source: Source, timeout: int = 20) -> list[Article]:
-    user_agent = os.environ.get(
-        "AI_NEWS_RADAR_USER_AGENT",
-        "ai-news-radar/0.1 research-tool contact=local@example.com",
-    )
-    request = urllib.request.Request(source.url, headers={"User-Agent": user_agent})
-    is_arxiv = "export.arxiv.org" in source.url
+    url = expand_url_template(source.url)
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent()})
+    is_arxiv = "export.arxiv.org" in url
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()
@@ -209,18 +215,60 @@ def _article_allowed(article: Article, source: Source) -> bool:
     return True
 
 
-def fetch_all(sources: list[Source], limit_per_source: int = 50) -> tuple[list[Article], list[str]]:
+def fetch_all(
+    sources: list[Source],
+    limit_per_source: int = 50,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+) -> tuple[list[Article], list[str]]:
+    """Fetch every source concurrently, preserving source order in the output.
+
+    A failing source is recorded in ``errors`` and skipped; it never aborts the
+    scan. Returns deduplicated articles and a list of ``"name: error"`` strings.
+    """
+    articles, _health = fetch_sources(sources, limit_per_source, max_workers)
+    errors = [f"{row['source']}: {row['error']}" for row in _health if row["status"] == "error"]
+    return articles, errors
+
+
+def fetch_sources(
+    sources: list[Source],
+    limit_per_source: int = 50,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+) -> tuple[list[Article], list[dict[str, object]]]:
+    """Concurrent fetch returning articles plus structured per-source health.
+
+    Health rows: ``{source, status: ok|error, count, latency_ms, error}``.
+    """
+    if not sources:
+        return [], []
+
+    workers = max(1, min(max_workers, len(sources)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(lambda source: _fetch_source_safely(source, limit_per_source), sources))
+
     articles: list[Article] = []
-    errors: list[str] = []
+    health: list[dict[str, object]] = []
+    for source, (fetched, error, latency_ms) in zip(sources, results, strict=False):
+        if error is None:
+            articles.extend(fetched)
+            health.append({"source": source.name, "status": "ok", "count": len(fetched), "latency_ms": latency_ms})
+        else:
+            health.append({"source": source.name, "status": "error", "count": 0, "latency_ms": latency_ms, "error": error})
 
-    for source in sources:
-        try:
-            fetched = fetch_feed(source)
-            articles.extend(fetched[:limit_per_source])
-        except Exception as exc:  # noqa: BLE001 - capture source failures without killing the scan.
-            errors.append(f"{source.name}: {exc}")
+    return dedupe_articles(articles), health
 
-    return dedupe_articles(articles), errors
+
+def _fetch_source_safely(source: Source, limit_per_source: int) -> tuple[list[Article], str | None, int]:
+    start = time.monotonic()
+    try:
+        fetched = fetch_feed(source)
+        latency_ms = int((time.monotonic() - start) * 1000)
+        logger.info("source ok: %s (%d items, %dms)", source.name, len(fetched), latency_ms)
+        return fetched[:limit_per_source], None, latency_ms
+    except Exception as exc:  # noqa: BLE001 - capture source failures without killing the scan.
+        latency_ms = int((time.monotonic() - start) * 1000)
+        logger.warning("source error: %s (%dms): %s", source.name, latency_ms, exc)
+        return [], str(exc), latency_ms
 
 
 def dedupe_articles(articles: list[Article]) -> list[Article]:

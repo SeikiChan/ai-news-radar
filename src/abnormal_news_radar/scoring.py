@@ -231,29 +231,167 @@ GENERIC_COMPANY_ALIASES: set[str] = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# Alert bands and evidence tiers
+#
+# Single source of truth for the score thresholds. When the `report` command
+# accumulates enough matured forward-return outcomes, calibrate these here.
+# --------------------------------------------------------------------------- #
+HARD_BAND = 35.0
+WATCH_BAND = 20.0
+WEAK_BAND = 10.0
+
+#: Minimum raw evidence score for an article to seed a discovered candidate.
+DISCOVERY_MIN_RAW = 16
+
+#: Evidence tiers derived from a term's weight. Hard-evidence terms describe a
+#: change in real economics (orders, prepayments, production, guidance); thematic
+#: terms are narrative ("AI", "semiconductor") and must not dominate a score.
+TIER1_MIN_WEIGHT = 18
+TIER2_MIN_WEIGHT = 10
+
+#: Thematic (tier-3) terms get diminishing returns and a hard cap so a wall of
+#: buzzwords without hard evidence cannot inflate the score.
+TIER3_FULL_COUNT = 1
+TIER3_DECAY = 0.5
+TIER3_MAX_CONTRIBUTION = 12.0
+
+#: Quantified economics (dollar amounts, magnitudes, capacity/unit counts) are a
+#: strong tell that a headline carries real numbers rather than narrative.
+_QUANTIFIED_ECONOMICS_RE = re.compile(
+    r"(\$\s?\d[\d,.]*"
+    r"|\b\d[\d,.]*\s?(?:million|billion|thousand|m|bn)\b"
+    r"|\b\d[\d,.]*\s?%"
+    r"|\b\d[\d,.]*\s?(?:mw|gw|kw|kwh|mwh|units|wafers|systems|racks)\b)",
+    re.IGNORECASE,
+)
+
+
+def band_for_score(score: float) -> str:
+    if score >= HARD_BAND:
+        return "hard alert"
+    if score >= WATCH_BAND:
+        return "watch alert"
+    if score >= WEAK_BAND:
+        return "weak alert"
+    return "ignore"
+
+
+def _tier_for_weight(weight: int) -> str:
+    if weight >= TIER1_MIN_WEIGHT:
+        return "tier1_hard"
+    if weight >= TIER2_MIN_WEIGHT:
+        return "tier2_material"
+    return "tier3_thematic"
+
+
+def analyze_evidence(article: Article) -> dict[str, object]:
+    """Structured, explainable evidence profile for an article.
+
+    Returns the raw score (with thematic diminishing returns applied), the flat
+    matched-term list (order preserved for backward compatibility), the terms
+    grouped by tier, whether quantified economics were detected, and a derived
+    evidence tier + confidence in [0, 1].
+    """
+    text = f" {article.text.lower()} "
+    matched_terms: list[str] = []
+    by_tier: dict[str, list[tuple[str, int]]] = {
+        "tier1_hard": [],
+        "tier2_material": [],
+        "tier3_thematic": [],
+        "penalty": [],
+        "counterparty": [],
+    }
+
+    for term, weight in TERM_WEIGHTS.items():
+        if _contains_term(text, term):
+            matched_terms.append(term.strip())
+            by_tier[_tier_for_weight(weight)].append((term.strip(), weight))
+
+    for term, weight in PENALTY_WEIGHTS.items():
+        if _contains_term(text, term):
+            matched_terms.append(term.strip())
+            by_tier["penalty"].append((term.strip(), weight))
+
+    if _has_evidence_context(text, matched_terms):
+        for term, weight in STRATEGIC_COUNTERPARTIES.items():
+            if _contains_term(text, term):
+                matched_terms.append(f"counterparty:{term.strip()}")
+                by_tier["counterparty"].append((term.strip(), weight))
+
+    raw_score = _score_from_tiers(by_tier)
+    quantified = bool(_QUANTIFIED_ECONOMICS_RE.search(article.text))
+    evidence_tier, confidence = _grade_confidence(by_tier, quantified)
+
+    return {
+        "raw_score": raw_score,
+        "matched_terms": tuple(dict.fromkeys(matched_terms)),
+        "by_tier": by_tier,
+        "quantified_economics": quantified,
+        "evidence_tier": evidence_tier,
+        "confidence": confidence,
+    }
+
+
+def _score_from_tiers(by_tier: dict[str, list[tuple[str, int]]]) -> int:
+    score = 0.0
+    score += sum(weight for _term, weight in by_tier["tier1_hard"])
+    score += sum(weight for _term, weight in by_tier["tier2_material"])
+
+    thematic = sorted((weight for _term, weight in by_tier["tier3_thematic"]), reverse=True)
+    thematic_contribution = 0.0
+    for index, weight in enumerate(thematic):
+        factor = 1.0 if index < TIER3_FULL_COUNT else TIER3_DECAY
+        thematic_contribution += weight * factor
+    score += min(thematic_contribution, TIER3_MAX_CONTRIBUTION)
+
+    score += sum(weight for _term, weight in by_tier["penalty"])
+    score += sum(weight for _term, weight in by_tier["counterparty"])
+    return round(score)
+
+
+def _grade_confidence(by_tier: dict[str, list[tuple[str, int]]], quantified: bool) -> tuple[str, float]:
+    tier1 = by_tier["tier1_hard"]
+    tier2 = by_tier["tier2_material"]
+    tier3 = by_tier["tier3_thematic"]
+    penalty = by_tier["penalty"]
+
+    if tier1:
+        evidence_tier, confidence = "hard_evidence", 0.5
+    elif tier2:
+        evidence_tier, confidence = "material", 0.3
+    elif tier3:
+        evidence_tier, confidence = "thematic", 0.1
+    else:
+        return "none", 0.0
+
+    if len(tier1) + len(tier2) >= 2:
+        confidence += 0.15
+    if quantified:
+        confidence += 0.25
+    if penalty:
+        confidence -= 0.25
+
+    return evidence_tier, max(0.0, min(round(confidence, 2), 1.0))
+
+
 def score_article(article: Article, watchlist: list[Company]) -> Signal | None:
     text = f" {article.text.lower()} "
     matched_companies = _match_companies(text, watchlist)
-    raw_score, matched_terms = score_evidence(article)
+    profile = analyze_evidence(article)
+    raw_score = int(profile["raw_score"])
+    matched_terms = tuple(profile["matched_terms"])
 
-    if not matched_companies and raw_score < 20:
+    if not matched_companies and raw_score < WATCH_BAND:
         return None
 
     tickers = tuple(company.ticker for company in matched_companies)
     themes = tuple(dict.fromkeys(theme for company in matched_companies for theme in company.themes))
     freshness = article_timeliness(article)
     adjusted = round(raw_score * article.source_trust * float(freshness.get("score_multiplier") or 1.0), 2)
+    band = band_for_score(adjusted)
 
-    if adjusted >= 35:
-        band = "hard alert"
-    elif adjusted >= 20:
-        band = "watch alert"
-    elif adjusted >= 10:
-        band = "weak alert"
-    else:
-        band = "ignore"
-
-    if adjusted < 10 and not tickers:
+    if adjusted < WEAK_BAND and not tickers:
         return None
 
     return Signal(
@@ -262,33 +400,17 @@ def score_article(article: Article, watchlist: list[Company]) -> Signal | None:
         themes=themes,
         score=adjusted,
         raw_score=raw_score,
-        matched_terms=tuple(dict.fromkeys(matched_terms)),
+        matched_terms=matched_terms,
         band=band,
+        confidence=float(profile["confidence"]),
+        evidence_tier=str(profile["evidence_tier"]),
     )
 
 
 def score_evidence(article: Article) -> tuple[int, tuple[str, ...]]:
-    text = f" {article.text.lower()} "
-    matched_terms: list[str] = []
-    raw_score = 0
-
-    for term, weight in TERM_WEIGHTS.items():
-        if _contains_term(text, term):
-            matched_terms.append(term.strip())
-            raw_score += weight
-
-    for term, weight in PENALTY_WEIGHTS.items():
-        if _contains_term(text, term):
-            matched_terms.append(term.strip())
-            raw_score += weight
-
-    if _has_evidence_context(text, matched_terms):
-        for term, weight in STRATEGIC_COUNTERPARTIES.items():
-            if _contains_term(text, term):
-                matched_terms.append(f"counterparty:{term.strip()}")
-                raw_score += weight
-
-    return raw_score, tuple(dict.fromkeys(matched_terms))
+    """Backward-compatible (raw_score, matched_terms) view of the evidence."""
+    profile = analyze_evidence(article)
+    return int(profile["raw_score"]), tuple(profile["matched_terms"])
 
 
 def _match_companies(text: str, watchlist: list[Company]) -> list[Company]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from .model import Article, Candidate, Company
-from .scoring import score_article, score_evidence
+from .scoring import DISCOVERY_MIN_RAW, analyze_evidence, score_article
 from .timeliness import article_timeliness
 
 DISCOVERY_VERBS = (
@@ -38,8 +38,14 @@ GENERIC_COMPANY_NAMES = {
 }
 
 
-def discover_candidate(article: Article, watchlist: list[Company], min_raw_score: int = 16) -> Candidate | None:
-    raw_score, matched_terms = score_evidence(article)
+def discover_candidate(
+    article: Article,
+    watchlist: list[Company],
+    min_raw_score: int = DISCOVERY_MIN_RAW,
+) -> Candidate | None:
+    profile = analyze_evidence(article)
+    raw_score = int(profile["raw_score"])
+    matched_terms = tuple(profile["matched_terms"])
     if raw_score < min_raw_score:
         return None
 
@@ -62,6 +68,8 @@ def discover_candidate(article: Article, watchlist: list[Company], min_raw_score
         matched_terms=matched_terms,
         status=status,
         reason=reason,
+        confidence=float(profile["confidence"]),
+        evidence_tier=str(profile["evidence_tier"]),
     )
 
 

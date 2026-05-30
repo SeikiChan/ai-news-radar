@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from urllib.parse import quote
-from urllib.request import Request, urlopen
 
-FETCH_TIMEOUT_SECONDS = 6
-USER_AGENT = "AI-News-Radar/0.1 (+price-volume-confirmation)"
+from .net import fetch_text
+
+FETCH_TIMEOUT_SECONDS = 12
 
 
 def enrich_candidates_with_market_confirmation(
@@ -181,7 +181,7 @@ def _chart_points(result: dict[str, object]) -> list[dict[str, object]]:
     closes = quote.get("close") or []
     volumes = quote.get("volume") or []
     points: list[dict[str, object]] = []
-    for timestamp, close, volume in zip(timestamps, closes, volumes):
+    for timestamp, close, volume in zip(timestamps, closes, volumes, strict=False):
         if close is None or volume is None:
             continue
         date = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).date().isoformat()
@@ -224,10 +224,7 @@ def _yahoo_chart_url(symbol: str) -> str:
 
 
 def _fetch_text(url: str) -> str:
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        raw = response.read()
-    return raw.decode("utf-8", errors="replace")
+    return fetch_text(url, accept="application/json", timeout=FETCH_TIMEOUT_SECONDS)
 
 
 def _unavailable(symbol: str, reason: str, url: str = "") -> dict[str, object]:

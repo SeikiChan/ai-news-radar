@@ -57,6 +57,8 @@ class Signal:
     raw_score: int
     matched_terms: tuple[str, ...]
     band: str
+    confidence: float = 0.0
+    evidence_tier: str = "none"
 
 
 @dataclass(frozen=True)
@@ -69,3 +71,5 @@ class Candidate:
     matched_terms: tuple[str, ...]
     status: str
     reason: str
+    confidence: float = 0.0
+    evidence_tier: str = "none"

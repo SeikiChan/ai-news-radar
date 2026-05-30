@@ -32,10 +32,39 @@ The project is intentionally not a Bloomberg clone. The first version focuses on
 
 ## Run
 
+The runtime is standard-library only except for `tzdata` (required so the
+market-hours scheduler can resolve `America/New_York` on Windows). Install it
+once, or install the package, then run:
+
 ```powershell
 cd C:\Users\Allen\ai-news-radar
+pip install -e .            # pulls tzdata and registers console commands
+ai-news-radar scan --limit 40
+# or, without installing:
 python -m src.abnormal_news_radar scan --limit 40
 ```
+
+Date-scoped public feeds use `{yyyy}` / `{yyyymm}` / `{yyyymmdd}` templates in
+`config/sources.json` (resolved against the U.S. Eastern calendar at fetch
+time), so feeds like the Treasury yield curve never break at a month boundary.
+
+## Validate the Signal Model
+
+The radar is only useful if higher-scored signals actually precede higher
+forward returns. The `report` command backtests every stored signal/candidate
+against its forward price move and the excess over SPY, anchored on the day the
+item was first seen:
+
+```powershell
+ai-news-radar report            # table by band x horizon (+1d / +5d / +20d)
+ai-news-radar report --json     # raw report for further analysis
+```
+
+It shows, per alert band, the matured sample size, hit rate (share with
+positive excess), and mean excess return, plus a calibration check for whether
+`hard >= watch >= weak` holds. Longer horizons only populate once enough
+trading days have elapsed since the signal, so the edge estimate sharpens over
+time rather than from a single scan.
 
 ## Local Web Terminal
 
@@ -77,6 +106,20 @@ src/
     web.py
     web_static/
 ```
+
+## Development
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+pytest            # run the test suite
+ruff check src tests
+```
+
+CI (`.github/workflows/ci.yml`) runs the same lint + tests on Linux and Windows
+for Python 3.10 and 3.12. Copy `.env.example` to `.env` to set a real
+`User-Agent` contact string before heavy use.
 
 ## Design Principle
 

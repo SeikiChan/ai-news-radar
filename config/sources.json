@@ -214,7 +214,7 @@
       "name": "U.S. Treasury Daily Yield Curve XML",
       "group": "rates",
       "type": "xml",
-      "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month=202605",
+      "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value={yyyy}",
       "purpose": "Risk-free curve and rate regime."
     },
     {

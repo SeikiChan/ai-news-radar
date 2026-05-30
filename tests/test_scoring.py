@@ -1,7 +1,69 @@
 import unittest
 
 from src.abnormal_news_radar.model import Article, Company
-from src.abnormal_news_radar.scoring import score_article
+from src.abnormal_news_radar.scoring import (
+    analyze_evidence,
+    band_for_score,
+    score_article,
+)
+
+
+def _article(title: str, summary: str = "") -> Article:
+    return Article(source="Test", source_trust=1.0, title=title, link="https://example.com/x", summary=summary)
+
+
+def test_band_for_score_boundaries():
+    assert band_for_score(35) == "hard alert"
+    assert band_for_score(34.99) == "watch alert"
+    assert band_for_score(20) == "watch alert"
+    assert band_for_score(10) == "weak alert"
+    assert band_for_score(9.99) == "ignore"
+
+
+def test_hard_evidence_tier_and_high_confidence():
+    profile = analyze_evidence(
+        _article(
+            "Acme receives $290M customer prepayment for mass production order",
+            "Multi-year agreement covers data center demand.",
+        )
+    )
+    assert profile["evidence_tier"] == "hard_evidence"
+    assert profile["quantified_economics"] is True
+    # tier1 (0.5) + corroboration (0.15) + quantified (0.25) -> capped near 1.0
+    assert profile["confidence"] >= 0.85
+
+
+def test_thematic_only_is_low_confidence_and_capped():
+    # A wall of thematic buzzwords with no hard evidence must stay weak.
+    profile = analyze_evidence(
+        _article(
+            "AI and artificial intelligence drive semiconductor and silicon photonics interest",
+            "ai infrastructure, ai customer, co-packaged optics, hbm, nvlink everywhere.",
+        )
+    )
+    assert profile["evidence_tier"] == "thematic"
+    assert profile["confidence"] <= 0.2
+    # Diminishing returns + cap keep the thematic pile from inflating the score.
+    assert profile["raw_score"] <= 12
+
+
+def test_penalty_reduces_confidence():
+    clean = analyze_evidence(_article("Acme signs multi-year production order agreement"))
+    penalized = analyze_evidence(
+        _article("Acme signs multi-year production order agreement amid going concern warning")
+    )
+    assert penalized["confidence"] < clean["confidence"]
+
+
+def test_score_article_exposes_confidence_and_tier():
+    watchlist = [Company(ticker="NVDA", name="NVIDIA", aliases=("NVIDIA", "NVDA"), themes=("ai",))]
+    signal = score_article(
+        _article("NVIDIA receives $1 billion production order with capacity reservation"),
+        watchlist,
+    )
+    assert signal is not None
+    assert signal.evidence_tier == "hard_evidence"
+    assert 0.0 < signal.confidence <= 1.0
 
 
 class ScoringTests(unittest.TestCase):

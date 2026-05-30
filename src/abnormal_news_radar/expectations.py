@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 POSITIVE_MARKET_STATUSES = {"confirmed", "early_confirmation", "price_only_confirmation"}
 SERENITY_LENS_SOURCE = "yan-labs/serenity-aleabitoreddit methodology"
 
