@@ -55,6 +55,62 @@ def test_penalty_reduces_confidence():
     assert penalized["confidence"] < clean["confidence"]
 
 
+def _onsemi_watchlist():
+    # Mirrors load_watchlist: the ticker is added to the alias set.
+    return [
+        Company(
+            ticker="ON",
+            name="onsemi",
+            aliases=("ON", "onsemi", "On Semiconductor"),
+            themes=("power_semiconductors",),
+        )
+    ]
+
+
+def test_short_ticker_on_does_not_match_english_word_on():
+    article = _article(
+        "A Call for Collaboration on AI Data Center Infrastructure Standards",
+        "The group will focus on shared production standards.",
+    )
+    signal = score_article(article, _onsemi_watchlist())
+    # Evidence may still score, but it must NOT be tagged with the ON ticker.
+    if signal is not None:
+        assert "ON" not in signal.tickers
+
+
+def test_uppercase_ticker_symbol_still_matches():
+    article = _article(
+        "Shares of ON rose after a multi-year production order with capacity reservation",
+        "Analysts cited the order.",
+    )
+    signal = score_article(article, _onsemi_watchlist())
+    assert signal is not None
+    assert "ON" in signal.tickers
+
+
+def test_company_name_alias_still_matches_case_insensitively():
+    article = _article("onsemi signs multi-year production order agreement")
+    signal = score_article(article, _onsemi_watchlist())
+    assert signal is not None
+    assert "ON" in signal.tickers
+
+
+def test_other_short_word_tickers_are_not_falsely_matched():
+    watchlist = [
+        Company(ticker="CAT", name="Caterpillar", aliases=("CAT", "Caterpillar"), themes=("industrial",)),
+        Company(ticker="ARM", name="Arm Holdings", aliases=("Arm", "ARM", "ARM Holdings"), themes=("cpu_ip",)),
+    ]
+    article = _article(
+        "The cat sat on a robotic arm during the production order demo",
+        "A multi-year agreement followed.",
+    )
+    signal = score_article(article, watchlist)
+    if signal is not None:
+        assert "CAT" not in signal.tickers
+        # "Arm" capitalized is not present; lowercase "arm" must not match ARM.
+        assert "ARM" not in signal.tickers
+
+
 def test_score_article_exposes_confidence_and_tier():
     watchlist = [Company(ticker="NVDA", name="NVIDIA", aliases=("NVIDIA", "NVDA"), themes=("ai",))]
     signal = score_article(

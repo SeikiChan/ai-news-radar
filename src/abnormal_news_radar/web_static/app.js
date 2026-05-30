@@ -9,16 +9,22 @@ const state = {
   query: "",
   view: initialView(),
   selectedEarningsTicker: initialSelectedEarningsTicker(),
+  openRows: new Set(),
+  stale: false,
 };
 
 const AUTO_REFRESH_MS = 60000;
 
 const elements = {
+  postureVal: document.querySelector("#postureVal"),
+  urgentVal: document.querySelector("#urgentVal"),
+  urgentStat: document.querySelector("#urgentStat"),
+  candVal: document.querySelector("#candVal"),
+  artVal: document.querySelector("#artVal"),
   nextRun: document.querySelector("#nextRun"),
-  sourceCount: document.querySelector("#sourceCount"),
-  watchlistCount: document.querySelector("#watchlistCount"),
-  fetchedCount: document.querySelector("#fetchedCount"),
-  signalCount: document.querySelector("#signalCount"),
+  liveDot: document.querySelector("#liveDot"),
+  liveText: document.querySelector("#liveText"),
+  oppBadge: document.querySelector("#oppBadge"),
   statusLine: document.querySelector("#statusLine"),
   errorBox: document.querySelector("#errorBox"),
   scanProgress: document.querySelector("#scanProgress"),
@@ -27,9 +33,11 @@ const elements = {
   searchBox: document.querySelector("#searchBox"),
   viewTitle: document.querySelector("#viewTitle"),
   tabs: Array.from(document.querySelectorAll(".tab")),
-  metricButtons: Array.from(document.querySelectorAll("[data-view-jump]")),
 };
 
+/* ------------------------------------------------------------------ */
+/* helpers                                                             */
+/* ------------------------------------------------------------------ */
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -49,6 +57,49 @@ function objectValue(value) {
 
 function textOf(values) {
   return values.filter(Boolean).join(" ").toLowerCase();
+}
+
+function candidateTickers(candidate) {
+  return (candidate.tickers || []).map((ticker) => String(ticker).toUpperCase().trim()).filter(Boolean);
+}
+
+function groupRows(rows, keyFn) {
+  return rows.reduce((groups, row) => {
+    const key = keyFn(row);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+    return groups;
+  }, {});
+}
+
+/* The analyst report is the ranked, action-tagged view. Fall back to raw
+   candidates (with a score-derived action) before the first brief loads. */
+function reportRows() {
+  const rows = state.brief?.analyst_report;
+  if (Array.isArray(rows) && rows.length) return rows;
+  return state.candidates.map((candidate) => ({
+    ...candidate,
+    action: candidate.action || actionFromScore(candidate.score),
+    decision: candidate.decision || "",
+  }));
+}
+
+function matchQuery(row) {
+  const query = state.query.trim().toLowerCase();
+  if (!query) return true;
+  return textOf([
+    row.company_name,
+    row.decision,
+    row.analyst_take,
+    ...(row.tickers || []),
+    ...(row.matched_terms || []),
+    articleOf(row).title,
+    articleOf(row).source,
+  ]).includes(query);
+}
+
+function visibleOpportunities() {
+  return reportRows().filter(matchQuery);
 }
 
 function visibleCandidates() {
@@ -78,15 +129,95 @@ function visibleSources() {
   return rows.filter((source) => textOf([source.name, source.group, source.type, source.url, source.purpose]).includes(query));
 }
 
-function groupRows(rows, keyFn) {
-  return rows.reduce((groups, row) => {
-    const key = keyFn(row);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(row);
-    return groups;
-  }, {});
+function rowKey(row) {
+  return `${candidateTickers(row).join(",")}|${articleOf(row).link || articleOf(row).title || row.company_name || ""}`;
 }
 
+/* ------------------------------------------------------------------ */
+/* traffic-light evidence mapping                                     */
+/* ------------------------------------------------------------------ */
+function evChip(label, cls, text) {
+  return `<span class="ev ${cls}" title="${escapeHtml(label)}">${escapeHtml(text)}</span>`;
+}
+
+function evMarket(row) {
+  const s = objectValue(row.market_confirmation).status || "";
+  const map = {
+    confirmed: ["ok", "确认"],
+    early_confirmation: ["ok", "早期"],
+    price_only_confirmation: ["warn", "仅价"],
+    already_extended: ["warn", "已延伸"],
+    unconfirmed: ["warn", "未确认"],
+    negative_reaction: ["bad", "负向"],
+    no_ticker: ["na", "无tkr"],
+    unavailable: ["na", "无数据"],
+  };
+  const [cls, text] = map[s] || ["na", "—"];
+  return { cls, text };
+}
+
+function evImpact(row) {
+  const impact = objectValue(row.impact_assessment);
+  const score = impact.impact_score;
+  if (score === undefined || score === null || score === "") return { cls: "na", text: "—" };
+  const n = Number(score);
+  const cls = n >= 4 ? "ok" : n >= 2 ? "warn" : "na";
+  return { cls, text: `${n}/5` };
+}
+
+function evSec(row) {
+  const s = objectValue(row.financial_snapshot).status || "";
+  const map = {
+    ok: ["ok", "OK"],
+    partial: ["warn", "部分"],
+    missing: ["warn", "缺失"],
+    unavailable: ["na", "无"],
+    no_ticker: ["na", "无tkr"],
+  };
+  const [cls, text] = map[s] || ["na", "—"];
+  return { cls, text };
+}
+
+function evFlow(row) {
+  const s = objectValue(row.options_flow).status || "";
+  const map = {
+    supportive_flow: ["ok", "同向"],
+    bearish_flow: ["bad", "反向"],
+    conflicting_flow: ["bad", "冲突"],
+    mixed_flow: ["warn", "混合"],
+    unverified_bullish_flow: ["na", "未验"],
+    unverified_flow: ["na", "未验"],
+    no_flow_evidence: ["na", "无"],
+  };
+  const [cls, text] = map[s] || ["na", "—"];
+  return { cls, text };
+}
+
+function evExp(row) {
+  const s = objectValue(row.expectation_check).status || "";
+  const map = {
+    variant_not_fully_priced: ["ok", "未计价"],
+    needs_price_in_check: ["warn", "待查"],
+    likely_already_priced_in: ["bad", "已计价"],
+    negative_divergence: ["bad", "负背离"],
+    watch_only: ["na", "观察"],
+    no_market_data: ["na", "无"],
+  };
+  const [cls, text] = map[s] || ["na", "—"];
+  return { cls, text };
+}
+
+function confClass(conf) {
+  const n = Number(conf);
+  if (!Number.isFinite(n)) return "lo";
+  if (n >= 0.7) return "hi";
+  if (n >= 0.4) return "mid";
+  return "lo";
+}
+
+/* ------------------------------------------------------------------ */
+/* view routing                                                       */
+/* ------------------------------------------------------------------ */
 function setView(view) {
   state.view = view;
   const nextHash = view === "earnings" && state.selectedEarningsTicker ? `#earnings:${state.selectedEarningsTicker}` : `#${view}`;
@@ -95,22 +226,22 @@ function setView(view) {
   }
   elements.tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
   const titles = {
-    brief: "每日投研简报",
+    brief: "每日简报",
+    opportunities: "机会清单",
+    watchlist: "动态观察池",
     earnings: "财报工作台",
     technology: "技术前沿",
     market: "宏观状态",
-    opportunities: "机会报告",
-    watchlist: "动态观察池",
     process: "扫描过程",
     sources: "来源与种子名单",
   };
-  elements.viewTitle.textContent = titles[view] || "市场终端";
+  elements.viewTitle.textContent = titles[view] || "研究终端";
   render();
 }
 
 function initialView() {
   const view = window.location.hash.replace("#", "").split(":")[0];
-  return ["brief", "earnings", "technology", "market", "opportunities", "watchlist", "process", "sources"].includes(view) ? view : "brief";
+  return ["brief", "opportunities", "watchlist", "earnings", "technology", "market", "process", "sources"].includes(view) ? view : "brief";
 }
 
 function initialSelectedEarningsTicker() {
@@ -119,29 +250,76 @@ function initialSelectedEarningsTicker() {
 }
 
 function render() {
-  elements.signalCount.textContent = String(state.candidates.length);
+  updateStatusStrip();
   if (state.view === "brief") renderBrief();
+  if (state.view === "opportunities") renderOpportunities();
+  if (state.view === "watchlist") renderWatchlist();
   if (state.view === "earnings") renderEarnings();
   if (state.view === "technology") renderTechnology();
   if (state.view === "market") renderMarket();
-  if (state.view === "opportunities") renderOpportunities();
-  if (state.view === "watchlist") renderWatchlist();
   if (state.view === "process") renderProcess();
   if (state.view === "sources") renderSources();
 }
 
+/* ------------------------------------------------------------------ */
+/* status strip                                                       */
+/* ------------------------------------------------------------------ */
+function updateStatusStrip() {
+  const brief = state.brief || {};
+  const counts = brief.counts || {};
+  const regime = brief.market_regime || {};
+  const conclusion = brief.market_conclusion_zh || {};
+  const automation = brief.automation || {};
+
+  const regimeName = regime.regime || "unknown";
+  const postureMap = {
+    risk_on: ["posture-on", "RISK-ON 偏进攻"],
+    risk_off: ["posture-off", "RISK-OFF 防守"],
+    neutral: ["posture-neutral", "NEUTRAL 中性"],
+  };
+  const [postureCls, postureText] = postureMap[regimeName] || ["posture-na", "未连接"];
+  elements.postureVal.className = `stat-v ${postureCls}`;
+  const score = regime.score;
+  elements.postureVal.textContent = score !== undefined && score !== null && regimeName !== "unknown"
+    ? `${postureText} (${score})`
+    : postureText;
+  elements.postureVal.title = conclusion.action || conclusion.summary || "";
+
+  const urgent = counts.urgent_items ?? reportRows().filter((row) => row.action === "research_now").length;
+  elements.urgentVal.textContent = String(urgent);
+  elements.urgentStat.classList.toggle("has-urgent", Number(urgent) > 0);
+
+  elements.candVal.textContent = String(counts.report_items ?? reportRows().length);
+  elements.artVal.textContent = String(counts.articles_reviewed ?? state.articles.length ?? 0);
+  elements.nextRun.textContent = automation.next_run ? shortTime(automation.next_run) : "等待排程";
+
+  const oppCount = reportRows().filter((row) => row.action === "research_now").length;
+  elements.oppBadge.textContent = oppCount > 0 ? String(oppCount) : "";
+
+  elements.liveDot.classList.toggle("stale", state.stale);
+  elements.liveText.textContent = state.stale ? "OFFLINE" : "LIVE";
+}
+
+function shortTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+/* ------------------------------------------------------------------ */
+/* BRIEF cockpit                                                      */
+/* ------------------------------------------------------------------ */
 function renderBrief() {
   const brief = state.brief;
   if (!brief) {
     elements.contentArea.innerHTML = '<div class="empty">简报还没有加载。</div>';
     return;
   }
-
-  const counts = brief.counts || {};
-  const automation = brief.automation || {};
   const conclusion = brief.market_conclusion_zh || {};
   const calendar = brief.earnings_calendar || {};
-  const topCandidates = visibleCandidates().slice(0, 4);
+  const rows = visibleOpportunities();
+  const top = rows[0];
+  const tableRows = rows.slice(0, 12);
   const technologyCandidates = visibleCandidates().filter(hasTechnologyIntel).slice(0, 3);
   const earningsDetails = earningsDetailsByTicker(calendar.items || []);
   const gaps = (brief.data_gaps_zh || brief.data_gaps || [])
@@ -149,69 +327,249 @@ function renderBrief() {
     .map((gap) => `<span class="pill">${escapeHtml(gap)}</span>`)
     .join("");
 
-  elements.nextRun.textContent = automation.next_run ? `下次 ${automation.next_run}` : "等待排程";
-
   elements.contentArea.innerHTML = `
-    <section class="brief-hero">
-      <div>
-        <div class="row-title">${escapeHtml(brief.headline_zh || brief.headline || "暂无简报")}</div>
-        <div class="row-meta">
-          <span>文章 ${counts.articles_reviewed || 0}</span>
-          <span>候选 ${counts.discoveries || 0}</span>
-          <span>观察池 ${counts.dynamic_watchlist || 0}</span>
-          <span>重点 ${counts.report_items || 0}</span>
-        </div>
-      </div>
-      <div class="brief-verdict">
-        <strong>${escapeHtml(conclusion.title || "宏观状态")}</strong>
-        <span>${escapeHtml(conclusion.action || "")}</span>
-      </div>
-    </section>
-
     <section class="section-head">
       <div>
-        <h3>今日结论</h3>
-        <p>${escapeHtml(conclusion.summary || "系统暂未形成明确宏观结论。")}</p>
+        <h3>今日宏观结论</h3>
+        <p>${escapeHtml(conclusion.summary || brief.headline_zh || "系统暂未形成明确宏观结论。")}</p>
       </div>
     </section>
+
+    ${top ? `<section class="section-head"><div><h3>TOP CALL · 今日最该看</h3></div></section>${renderTopCall(top)}` : ""}
 
     <section class="section-head">
       <div>
         <h3>重点机会</h3>
-        <p>按新闻证据、价格确认、财务影响、期权链/flow、预期差排序。</p>
+        <p>按动作优先级 + 分数排序。绿=已被证据/市场确认，红=负向或需先解释，灰=暂无数据。点行展开详情。</p>
       </div>
+      <button class="small-action" type="button" data-inline-view="opportunities">查看全部 →</button>
     </section>
-    <section class="content-area">${topCandidates.map(renderCompactCandidate).join("") || '<div class="empty">暂无达到阈值的机会。</div>'}</section>
+    ${renderOppTable(tableRows)}
 
     <section class="section-head">
       <div>
         <h3>财报重点</h3>
         <p>${escapeHtml(calendar.summary_zh || "未来窗口暂无重点财报。")}</p>
       </div>
-      <button class="small-action" type="button" data-inline-view="earnings">打开财报工作台</button>
+      <button class="small-action" type="button" data-inline-view="earnings">财报工作台 →</button>
     </section>
-    <section class="content-area">${renderTodayEarningsBrief(calendar.items || [], earningsDetails)}</section>
+    <div class="content-grid">${renderTodayEarningsBrief(calendar.items || [], earningsDetails)}</div>
 
     <section class="section-head">
       <div>
         <h3>技术前沿</h3>
-        <p>技术博客、论文和研究报告里的路线图/供应链早期信号。</p>
+        <p>技术博客/论文里的路线图与供应链早期信号。</p>
       </div>
-      <button class="small-action" type="button" data-inline-view="technology">打开技术工作台</button>
+      <button class="small-action" type="button" data-inline-view="technology">技术工作台 →</button>
     </section>
-    <section class="content-area">${technologyCandidates.map(renderTechnologyCard).join("") || '<div class="empty">本轮暂无明确技术路线图信号。</div>'}</section>
+    <div class="content-grid">${technologyCandidates.map(renderTechnologyCard).join("") || '<div class="empty">本轮暂无明确技术路线图信号。</div>'}</div>
 
-    <section class="section-head">
-      <div>
-        <h3>证据缺口</h3>
-        <p>这是系统下一轮要补的证据，不是交给用户处理的待办。</p>
-      </div>
-    </section>
+    <section class="section-head"><div><h3>证据缺口</h3><p>系统下一轮要补的证据，不是交给你的待办。</p></div></section>
     <section class="row"><div class="row-meta">${gaps || "<span>当前没有关键缺口。</span>"}</div></section>
   `;
   bindInlineViewButtons();
+  bindOppRows();
 }
 
+function renderTopCall(row) {
+  const article = articleOf(row);
+  const action = row.action || actionFromScore(row.score);
+  const tickers = candidateTickers(row);
+  return `
+    <article class="topcall act-${escapeHtml(action)}">
+      <div class="topcall-head">
+        <span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span>
+        <span class="topcall-ticker">${escapeHtml(tickers.join(", ") || "待确认")}</span>
+        <span class="topcall-name">${escapeHtml(row.company_name || "Unknown")}</span>
+        <span class="topcall-score"><b>${Number(row.score || 0).toFixed(1)}</b><span>SCORE · 置信 ${fmtConf(row.confidence)}</span></span>
+      </div>
+      <div class="topcall-decision">${escapeHtml(row.decision || row.analyst_take || "")}</div>
+      <div class="row-meta">${evidenceChips(row)}</div>
+      <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · ${escapeHtml(article.title || "")}</a></div>
+    </article>
+  `;
+}
+
+function evidenceChips(row) {
+  const m = evMarket(row), i = evImpact(row), s = evSec(row), f = evFlow(row), e = evExp(row);
+  return [
+    evChip("市场确认", m.cls, `市场 ${m.text}`),
+    evChip("财务影响", i.cls, `影响 ${i.text}`),
+    evChip("SEC 财务", s.cls, `SEC ${s.text}`),
+    evChip("期权流", f.cls, `期权 ${f.text}`),
+    evChip("预期差", e.cls, `预期 ${e.text}`),
+  ].join(" ");
+}
+
+/* ------------------------------------------------------------------ */
+/* OPPORTUNITIES table                                                */
+/* ------------------------------------------------------------------ */
+function renderOpportunities() {
+  const rows = visibleOpportunities();
+  if (!rows.length) {
+    elements.contentArea.innerHTML = '<div class="empty">本轮自动报告暂无达到阈值的机会。</div>';
+    return;
+  }
+  elements.contentArea.innerHTML = `
+    <section class="section-head"><div><h3>机会清单 · ${rows.length} 项</h3><p>点任意行展开完整证据、分析判断与缺口。</p></div></section>
+    ${renderOppTable(rows)}
+  `;
+  bindOppRows();
+}
+
+function renderOppTable(rows) {
+  if (!rows.length) return '<div class="empty">暂无达到阈值的机会。</div>';
+  const body = rows.map(renderOppRow).join("");
+  return `
+    <div class="opp-wrap">
+      <table class="opp">
+        <thead>
+          <tr>
+            <th>动作</th>
+            <th>Ticker</th>
+            <th class="col-hide-md">公司</th>
+            <th class="col-num">分数</th>
+            <th class="col-num col-hide-sm">置信</th>
+            <th>市场</th>
+            <th class="col-hide-md">影响</th>
+            <th class="col-hide-md">SEC</th>
+            <th class="col-hide-sm">期权</th>
+            <th class="col-hide-sm">预期</th>
+            <th>催化剂</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderOppRow(row) {
+  const article = articleOf(row);
+  const action = row.action || actionFromScore(row.score);
+  const key = rowKey(row);
+  const open = state.openRows.has(key);
+  const m = evMarket(row), i = evImpact(row), s = evSec(row), f = evFlow(row), e = evExp(row);
+  const tickers = candidateTickers(row);
+  return `
+    <tr class="opp-row ${open ? "open" : ""}" data-key="${escapeHtml(key)}">
+      <td><span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span></td>
+      <td class="col-ticker">${escapeHtml(tickers.join(", ") || "—")}</td>
+      <td class="col-name col-hide-md">${escapeHtml(row.company_name || "Unknown")}</td>
+      <td class="col-num">${Number(row.score || 0).toFixed(1)}</td>
+      <td class="col-num col-hide-sm"><span class="conf ${confClass(row.confidence)}">${fmtConf(row.confidence)}</span></td>
+      <td>${evChip("市场确认", m.cls, m.text)}</td>
+      <td class="col-hide-md">${evChip("财务影响", i.cls, i.text)}</td>
+      <td class="col-hide-md">${evChip("SEC 财务", s.cls, s.text)}</td>
+      <td class="col-hide-sm">${evChip("期权流", f.cls, f.text)}</td>
+      <td class="col-hide-sm">${evChip("预期差", e.cls, e.text)}</td>
+      <td class="col-cat">${escapeHtml(article.title || "")}</td>
+      <td class="caret">${open ? "▾" : "▸"}</td>
+    </tr>
+    ${open ? `<tr class="detail-row" data-detail="${escapeHtml(key)}"><td colspan="12">${renderDetail(row)}</td></tr>` : ""}
+  `;
+}
+
+function renderDetail(row) {
+  const article = articleOf(row);
+  const action = row.action || actionFromScore(row.score);
+  const market = objectValue(row.market_confirmation);
+  const impact = objectValue(row.impact_assessment);
+  const fin = objectValue(row.financial_snapshot);
+  const model = objectValue(row.quick_model);
+  const flow = objectValue(row.options_flow);
+  const exp = objectValue(row.expectation_check);
+  const dims = [
+    ["市场确认", market.summary_zh],
+    ["财务影响", impact.summary_zh ? `${impact.summary_zh} (${impact.impact_score ?? "n/a"}/5)` : ""],
+    ["SEC 财务", fin.summary_zh],
+    ["Quick Model", model.summary_zh],
+    ["期权流", flow.summary_zh],
+    ["预期差", exp.setup_zh || exp.summary_zh],
+  ].filter(([, v]) => v);
+  const dimCards = dims.map(([k, v]) => `<div class="dim"><span class="dim-k">${escapeHtml(k)}</span><span class="dim-v">${escapeHtml(v)}</span></div>`).join("");
+  const missing = (row.missing_confirmations || []).slice(0, 6).map((item) => `<span class="ev warn">${escapeHtml(item)}</span>`).join(" ");
+  const terms = (row.matched_terms || []).slice(0, 10).map((term) => `<span class="pill">${escapeHtml(term)}</span>`).join(" ");
+  return `
+    <div class="detail act-${escapeHtml(action)}">
+      <div class="detail-decision">${escapeHtml(row.decision || "")}</div>
+      ${row.analyst_take ? `<div class="detail-take">${escapeHtml(row.analyst_take)}</div>` : ""}
+      <div class="row-meta"><span class="pill">证据层 ${escapeHtml(row.evidence_tier || "n/a")}</span><span class="pill">置信 ${fmtConf(row.confidence)}</span>${terms}</div>
+      ${dimCards ? `<div class="detail-grid">${dimCards}</div>` : ""}
+      ${missing ? `<div><span class="dim-k">还缺</span><div class="missing-list" style="margin-top:6px">${missing}</div></div>` : ""}
+      ${renderTechnologyIntel(row)}
+      ${renderEarningsAnalysis(row)}
+      ${renderReadthroughAnalysis(row)}
+      <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · 打开原文 ↗</a></div>
+    </div>
+  `;
+}
+
+function bindOppRows() {
+  document.querySelectorAll(".opp-row").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const key = tr.dataset.key;
+      if (state.openRows.has(key)) state.openRows.delete(key);
+      else state.openRows.add(key);
+      if (state.view === "brief") renderBrief();
+      else renderOpportunities();
+    });
+  });
+}
+
+function fmtConf(conf) {
+  const n = Number(conf);
+  return Number.isFinite(n) && n > 0 ? n.toFixed(2) : "—";
+}
+
+function actionLabelZh(action) {
+  const map = {
+    research_now: "立即研究",
+    track: "跟踪",
+    identify_then_monitor: "待识别",
+    monitor: "观察",
+  };
+  return map[action] || action || "观察";
+}
+
+/* ------------------------------------------------------------------ */
+/* WATCHLIST                                                          */
+/* ------------------------------------------------------------------ */
+function renderWatchlist() {
+  const rows = state.brief?.dynamic_watchlist || [];
+  const query = state.query.trim().toLowerCase();
+  const visible = query
+    ? rows.filter((row) => textOf([row.company_name, row.decision_zh, ...(row.tickers || []), ...(row.sources || [])]).includes(query))
+    : rows;
+  elements.contentArea.innerHTML = visible.map(renderWatchlistItem).join("") || '<div class="empty">动态观察池还没有足够证据。</div>';
+}
+
+function renderWatchlistItem(row) {
+  const article = row.latest_article || {};
+  return `
+    <article class="signal watchlist-item">
+      <div>
+        <div class="signal-title">
+          <span class="band ${Number(row.conviction || 0) >= 4 ? "hard" : "watch"}">信念 ${escapeHtml(row.conviction || 0)}/5</span>
+          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(row.company_name || "Unknown")}</a>
+          <span class="pill">${escapeHtml(candidateTickers(row).join(", ") || "ticker待确认")}</span>
+        </div>
+        <div class="terms">${escapeHtml(row.decision_zh || "")}</div>
+        <div class="row-meta">${evidenceChips(row)}</div>
+        ${renderTechnologyIntel(row)}
+        ${renderEarningsAnalysis(row)}
+        ${renderReadthroughAnalysis(row)}
+        <div class="terms">${escapeHtml(row.why_zh || "")}</div>
+      </div>
+      <div class="score"><strong>${Number(row.max_score || 0).toFixed(1)}</strong><span>max</span></div>
+    </article>
+  `;
+}
+
+/* ------------------------------------------------------------------ */
+/* EARNINGS                                                           */
+/* ------------------------------------------------------------------ */
 function renderEarnings() {
   const calendar = state.brief?.earnings_calendar || {};
   const items = calendar.items || [];
@@ -224,24 +582,18 @@ function renderEarnings() {
     <section class="section-head">
       <div>
         <h3>财报日历</h3>
-        <p>${escapeHtml(calendar.summary_zh || "未来窗口暂无重点财报。")} 一级入口只显示日历事件；新闻拆解只作为对应公司的详情证据。</p>
+        <p>${escapeHtml(calendar.summary_zh || "未来窗口暂无重点财报。")} 一级入口只显示日历事件；新闻拆解作为对应公司的详情证据。</p>
       </div>
     </section>
     ${renderEarningsCalendar(items, detailsByTicker, selectedTicker)}
 
     <section class="section-head">
-      <div>
-        <h3>${todayLocalIso()} 财报简报</h3>
-        <p>当天若没有重点公司，则显示最近一个待跟踪财报。</p>
-      </div>
+      <div><h3>${todayLocalIso()} 财报简报</h3><p>当天若没有重点公司，则显示最近一个待跟踪财报。</p></div>
     </section>
-    <section class="content-area">${renderTodayEarningsBrief(items, detailsByTicker)}</section>
+    <div class="content-grid">${renderTodayEarningsBrief(items, detailsByTicker)}</div>
 
     <section class="section-head">
-      <div>
-        <h3>${selectedTicker ? `${escapeHtml(selectedTicker)} 财报详情` : "财报详情"}</h3>
-        <p>核心财务指标、钱花在哪里、提到的公司/产业链对象，以及二阶 read-through。</p>
-      </div>
+      <div><h3>${selectedTicker ? `${escapeHtml(selectedTicker)} 财报详情` : "财报详情"}</h3><p>核心财务指标、资金投向、提到的公司/产业链对象，以及二阶 read-through。</p></div>
     </section>
     ${renderSelectedEarningsDetail(selectedItem, selectedDetail)}
   `;
@@ -319,11 +671,9 @@ function renderTodayEarningsBrief(items, detailsByTicker) {
 
 function renderSelectedEarningsDetail(item, detail) {
   if (!item) return '<div class="empty">没有可展示的财报事件。</div>';
-  if (detail) {
-    return `<section class="content-area">${renderEarningsCard(detail)}</section>`;
-  }
+  if (detail) return `<div class="content-grid">${renderEarningsCard(detail)}</div>`;
   return `
-    <section class="content-area">
+    <div class="content-grid">
       <article class="row">
         <div class="row-title">${escapeHtml(tickerOf(item))} ${escapeHtml(item.name || "")}<span class="pill">${escapeHtml(item.status_zh || "")}</span></div>
         <div class="row-meta">
@@ -332,9 +682,9 @@ function renderSelectedEarningsDetail(item, detail) {
           <span>EPS预期=${escapeHtml(item.eps_forecast || "n/a")}</span>
           <span>来源=Nasdaq public earnings calendar API</span>
         </div>
-        <div class="terms">还没有抓到可拆解的财报原文。系统不会用模板伪造“钱花在哪里”或 read-through；等公司发布 release/10-Q/call transcript 后再解析。</div>
+        <div class="terms">还没有抓到可拆解的财报原文。系统不会用模板伪造结论；等公司发布 release/10-Q/call transcript 后再解析。</div>
       </article>
-    </section>
+    </div>
   `;
 }
 
@@ -390,49 +740,60 @@ function bindEarningsButtons() {
   });
 }
 
-function tickerOf(item) {
-  return String(item?.ticker || "").toUpperCase().trim();
+function renderEarningsCard(candidate) {
+  const article = articleOf(candidate);
+  return `
+    <article class="signal earnings-card">
+      <div>
+        <div class="signal-title">
+          <span class="band hard">财报</span>
+          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
+          <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
+        </div>
+        <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
+        ${renderEarningsAnalysis(candidate)}
+        ${renderReadthroughAnalysis(candidate)}
+      </div>
+      <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>score</span></div>
+    </article>
+  `;
 }
 
-function candidateTickers(candidate) {
-  return (candidate.tickers || []).map((ticker) => String(ticker).toUpperCase().trim()).filter(Boolean);
-}
-
-function todayLocalIso() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatDateLabel(dateText) {
-  const date = new Date(`${dateText}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateText || "unknown";
-  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", weekday: "short" });
-}
-
-function timeZh(value) {
-  const lower = String(value || "").toLowerCase();
-  if (lower.includes("before")) return "盘前";
-  if (lower.includes("after")) return "盘后";
-  if (lower.includes("during")) return "盘中";
-  return "时间待确认";
-}
-
+/* ------------------------------------------------------------------ */
+/* TECHNOLOGY                                                         */
+/* ------------------------------------------------------------------ */
 function renderTechnology() {
   const candidates = visibleCandidates().filter(hasTechnologyIntel);
   elements.contentArea.innerHTML = `
     <section class="section-head">
-      <div>
-        <h3>技术前沿任务</h3>
-        <p>读取技术博客、论文和研究报告，提取技术路线、被点名公司和供应链 read-through。</p>
-      </div>
+      <div><h3>技术前沿任务</h3><p>读取技术博客、论文和研究报告，提取技术路线、被点名公司和供应链 read-through。</p></div>
     </section>
-    <section class="content-area">${candidates.map(renderTechnologyCard).join("") || '<div class="empty">本轮扫描暂未抓到明确技术路线图信号。</div>'}</section>
+    <div class="content-grid">${candidates.map(renderTechnologyCard).join("") || '<div class="empty">本轮扫描暂未抓到明确技术路线图信号。</div>'}</div>
   `;
 }
 
+function renderTechnologyCard(candidate) {
+  const article = articleOf(candidate);
+  return `
+    <article class="signal technology-card">
+      <div>
+        <div class="signal-title">
+          <span class="band watch">技术</span>
+          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
+          <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
+        </div>
+        <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
+        ${renderTechnologyIntel(candidate)}
+        ${renderReadthroughAnalysis(candidate)}
+      </div>
+      <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>score</span></div>
+    </article>
+  `;
+}
+
+/* ------------------------------------------------------------------ */
+/* MARKET                                                             */
+/* ------------------------------------------------------------------ */
 function renderMarket() {
   const regime = state.brief?.market_regime;
   const conclusion = state.brief?.market_conclusion_zh || {};
@@ -486,24 +847,9 @@ function renderMarket() {
   `;
 }
 
-function renderOpportunities() {
-  const candidates = visibleCandidates();
-  if (!candidates.length) {
-    elements.contentArea.innerHTML = '<div class="empty">本轮自动报告暂无机会。</div>';
-    return;
-  }
-  elements.contentArea.innerHTML = candidates.map(renderCandidate).join("");
-}
-
-function renderWatchlist() {
-  const rows = state.brief?.dynamic_watchlist || [];
-  const query = state.query.trim().toLowerCase();
-  const visible = query
-    ? rows.filter((row) => textOf([row.company_name, row.decision_zh, ...(row.tickers || []), ...(row.sources || [])]).includes(query))
-    : rows;
-  elements.contentArea.innerHTML = visible.map(renderWatchlistItem).join("") || '<div class="empty">动态观察池还没有足够证据。</div>';
-}
-
+/* ------------------------------------------------------------------ */
+/* PROCESS                                                            */
+/* ------------------------------------------------------------------ */
 function renderProcess() {
   const sourceRows = Object.entries(state.sourceCounts)
     .sort((a, b) => b[1] - a[1])
@@ -530,6 +876,9 @@ function renderProcess() {
   `;
 }
 
+/* ------------------------------------------------------------------ */
+/* SOURCES                                                            */
+/* ------------------------------------------------------------------ */
 function renderSources() {
   const grouped = groupRows(visibleSources(), (row) => row.group || "ungrouped");
   const sourceRows = Object.entries(grouped).map(([group, rows]) => `
@@ -564,127 +913,9 @@ function renderSources() {
   `;
 }
 
-function renderCompactCandidate(candidate) {
-  const article = articleOf(candidate);
-  return `
-    <article class="signal">
-      <div>
-        <div class="signal-title">
-          <span class="band ${actionClass(candidate.action)}">${escapeHtml(candidate.action || actionFromScore(candidate.score))}</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
-          <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
-        </div>
-        <div class="terms">${escapeHtml(candidate.decision || "Monitor only")}</div>
-        <div class="meta">${escapeHtml(article.title || "")}</div>
-        ${renderEvidenceStrip(candidate)}
-      </div>
-      <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>score</span></div>
-    </article>
-  `;
-}
-
-function renderCandidate(candidate) {
-  const article = articleOf(candidate);
-  return `
-    <article class="signal">
-      <div>
-        <div class="signal-title">
-          <span class="band ${actionClass(candidate.action)}">${escapeHtml(candidate.action || actionFromScore(candidate.score))}</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
-          <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
-        </div>
-        <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
-        <div class="terms">${escapeHtml(candidate.decision || "")}</div>
-        ${renderEvidenceStrip(candidate)}
-        ${renderTechnologyIntel(candidate)}
-        ${renderEarningsAnalysis(candidate)}
-        ${renderReadthroughAnalysis(candidate)}
-        <div class="terms">${escapeHtml(candidate.analyst_take || "")}</div>
-      </div>
-      <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>candidate</span></div>
-    </article>
-  `;
-}
-
-function renderWatchlistItem(row) {
-  const article = row.latest_article || {};
-  return `
-    <article class="signal watchlist-item">
-      <div>
-        <div class="signal-title">
-          <span class="band ${Number(row.conviction || 0) >= 4 ? "hard" : "watch"}">信念 ${escapeHtml(row.conviction || 0)}/5</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(row.company_name || "Unknown")}</a>
-          <span class="pill">${escapeHtml(candidateTickers(row).join(", ") || "ticker待确认")}</span>
-        </div>
-        <div class="terms">${escapeHtml(row.decision_zh || "")}</div>
-        ${renderEvidenceStrip(row)}
-        ${renderTechnologyIntel(row)}
-        ${renderEarningsAnalysis(row)}
-        ${renderReadthroughAnalysis(row)}
-        <div class="terms">${escapeHtml(row.why_zh || "")}</div>
-      </div>
-      <div class="score"><strong>${Number(row.max_score || 0).toFixed(1)}</strong><span>max</span></div>
-    </article>
-  `;
-}
-
-function renderTechnologyCard(candidate) {
-  const article = articleOf(candidate);
-  return `
-    <article class="signal technology-card">
-      <div>
-        <div class="signal-title">
-          <span class="band watch">技术</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
-          <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
-        </div>
-        <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
-        ${renderTechnologyIntel(candidate)}
-        ${renderReadthroughAnalysis(candidate)}
-      </div>
-      <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>score</span></div>
-    </article>
-  `;
-}
-
-function renderEarningsCard(candidate) {
-  const article = articleOf(candidate);
-  return `
-    <article class="signal earnings-card">
-      <div>
-        <div class="signal-title">
-          <span class="band hard">财报</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
-          <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
-        </div>
-        <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
-        ${renderEarningsAnalysis(candidate)}
-        ${renderReadthroughAnalysis(candidate)}
-      </div>
-      <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>score</span></div>
-    </article>
-  `;
-}
-
-function renderEvidenceStrip(candidate) {
-  const market = objectValue(candidate.market_confirmation);
-  const impact = objectValue(candidate.impact_assessment);
-  const financial = objectValue(candidate.financial_snapshot);
-  const model = objectValue(candidate.quick_model);
-  const flow = objectValue(candidate.options_flow);
-  const expectation = objectValue(candidate.expectation_check);
-  return `
-    <div class="row-meta">
-      <span class="pill">市场=${escapeHtml(statusLabel(market.status))}</span>
-      <span class="pill">影响=${escapeHtml(impact.impact_score ?? "n/a")}/5</span>
-      <span class="pill">SEC=${escapeHtml(financial.status || "n/a")}</span>
-      <span class="pill">模型=${escapeHtml(model.status || "n/a")}</span>
-      <span class="pill">期权=${escapeHtml(optionsFlowStatusZh(flow.status))}</span>
-      <span class="pill">预期差=${escapeHtml(expectationStatusZh(expectation.status))}</span>
-    </div>
-  `;
-}
-
+/* ------------------------------------------------------------------ */
+/* shared evidence sub-renderers                                      */
+/* ------------------------------------------------------------------ */
 function renderEarningsAnalysis(candidate) {
   const analysis = objectValue(candidate.earnings_analysis);
   if (!analysis.status || analysis.status === "not_earnings") return "";
@@ -747,6 +978,9 @@ function renderReadthroughAnalysis(candidate) {
   `;
 }
 
+/* ------------------------------------------------------------------ */
+/* small helpers                                                      */
+/* ------------------------------------------------------------------ */
 function hasEarningsAnalysis(candidate) {
   const analysis = objectValue(candidate.earnings_analysis);
   return Boolean(analysis.status && analysis.status !== "not_earnings");
@@ -764,44 +998,34 @@ function actionFromScore(score) {
   return "monitor";
 }
 
-function actionClass(action) {
-  if (action === "research_now") return "hard";
-  if (action === "track") return "watch";
-  return "monitor";
+function tickerOf(item) {
+  return String(item?.ticker || "").toUpperCase().trim();
 }
 
-function statusLabel(status) {
-  if (status === "confirmed") return "confirmed";
-  if (status === "price_only_confirmation") return "price only";
-  if (status === "unconfirmed") return "unconfirmed";
-  if (status === "insufficient_data") return "no data";
-  return status || "n/a";
+function todayLocalIso() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-function optionsFlowStatusZh(status) {
-  if (status === "confirmed") return "confirmed";
-  if (status === "degraded") return "部分降级";
-  if (status === "not_connected") return "未连接";
-  if (status === "no_flow_confirmation") return "未确认";
-  return status || "n/a";
+function formatDateLabel(dateText) {
+  const date = new Date(`${dateText}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateText || "unknown";
+  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", weekday: "short" });
 }
 
-function expectationStatusZh(status) {
-  if (status === "early_variant") return "早期变异";
-  if (status === "partly_priced") return "部分计价";
-  if (status === "priced_in") return "已计价";
-  if (status === "unconfirmed") return "未确认";
-  return status || "n/a";
+function timeZh(value) {
+  const lower = String(value || "").toLowerCase();
+  if (lower.includes("before")) return "盘前";
+  if (lower.includes("after")) return "盘后";
+  if (lower.includes("during")) return "盘中";
+  return "时间待确认";
 }
 
 function spendCategoryZh(category) {
-  const map = {
-    rd: "研发",
-    sales_marketing: "销售/市场",
-    capex: "资本开支",
-    buyback: "回购",
-    mna: "并购/战略投资",
-  };
+  const map = { rd: "研发", sales_marketing: "销售/市场", capex: "资本开支", buyback: "回购", mna: "并购/战略投资" };
   return map[category] || category || "未分类";
 }
 
@@ -865,6 +1089,9 @@ function userFacingError(error) {
   return message;
 }
 
+/* ------------------------------------------------------------------ */
+/* data loading                                                       */
+/* ------------------------------------------------------------------ */
 async function loadInitialState() {
   elements.statusLine.textContent = "加载中";
   const [signalsResponse, sourcesResponse] = await Promise.all([
@@ -882,16 +1109,19 @@ async function loadInitialState() {
   state.sources = sourcesPayload.sources || [];
   state.marketSources = sourcesPayload.market_sources || [];
   state.watchlist = sourcesPayload.watchlist || [];
-  await refreshBrief();
+  state.stale = false;
 
-  elements.sourceCount.textContent = String(state.sources.length);
-  elements.watchlistCount.textContent = String(state.brief?.counts?.dynamic_watchlist || 0);
-  elements.fetchedCount.textContent = String(signalsPayload.last_scan?.fetched_count || 0);
-  elements.statusLine.textContent = `已加载 ${state.candidates.length} 个机会`;
+  // Paint immediately with stored signals, then upgrade once the (sometimes
+  // slow, network-backed) brief resolves, so first paint is never blank.
   elements.scanProgress.hidden = Boolean(signalsPayload.last_scan?.completed_at);
   if (!signalsPayload.last_scan?.completed_at) elements.progressText.textContent = "等待第一次自动分析";
   showErrors([]);
+  elements.statusLine.textContent = `已加载 ${state.candidates.length} 候选，正在生成简报…`;
   setView(state.view);
+
+  await refreshBrief();
+  elements.statusLine.textContent = `已加载 ${reportRows().length} 个机会 · ${state.candidates.length} 候选`;
+  render();
 }
 
 async function refreshDashboard() {
@@ -902,15 +1132,16 @@ async function refreshDashboard() {
     state.candidates = payload.candidates || [];
     state.articles = payload.last_scan?.articles || [];
     state.sourceCounts = payload.last_scan?.source_counts || {};
-    elements.fetchedCount.textContent = String(payload.last_scan?.fetched_count || 0);
+    state.stale = false;
     await refreshBrief();
-    elements.watchlistCount.textContent = String(state.brief?.counts?.dynamic_watchlist || 0);
-    elements.statusLine.textContent = `已加载 ${state.candidates.length} 个机会`;
+    elements.statusLine.textContent = `已加载 ${reportRows().length} 个机会 · ${state.candidates.length} 候选`;
     showErrors([]);
     render();
   } catch (error) {
+    state.stale = true;
     elements.statusLine.textContent = "连接中断，等待自动重连";
     showErrors([userFacingError(error)]);
+    updateStatusStrip();
   }
 }
 
@@ -921,6 +1152,9 @@ async function refreshBrief() {
   state.brief = payload.brief;
 }
 
+/* ------------------------------------------------------------------ */
+/* events                                                             */
+/* ------------------------------------------------------------------ */
 elements.searchBox.addEventListener("input", (event) => {
   state.query = event.target.value;
   render();
@@ -928,10 +1162,6 @@ elements.searchBox.addEventListener("input", (event) => {
 
 elements.tabs.forEach((tab) => {
   tab.addEventListener("click", () => setView(tab.dataset.view));
-});
-
-elements.metricButtons.forEach((button) => {
-  button.addEventListener("click", () => setView(button.dataset.viewJump));
 });
 
 window.addEventListener("hashchange", () => {
@@ -942,8 +1172,10 @@ window.addEventListener("hashchange", () => {
 });
 
 loadInitialState().catch((error) => {
+  state.stale = true;
   elements.statusLine.textContent = "加载失败";
   showErrors([userFacingError(error)]);
+  updateStatusStrip();
 });
 
 setInterval(refreshDashboard, AUTO_REFRESH_MS);

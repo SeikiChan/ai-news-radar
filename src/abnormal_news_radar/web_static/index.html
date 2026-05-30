@@ -3,74 +3,64 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI News Radar | 市场新闻终端</title>
+    <title>AI News Radar | 研究终端</title>
     <link rel="stylesheet" href="/app.css">
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">本地市场终端</p>
-          <h1>AI News Radar</h1>
-        </div>
-        <div class="actions">
-          <div class="auto-status" aria-label="Automation status">
-            <span>自动运行</span>
-            <strong id="nextRun">读取排程中</strong>
+    <div class="terminal">
+      <header class="statusbar">
+        <div class="brand"><span class="logo">◆</span> AI NEWS RADAR <span class="env">LOCAL</span></div>
+        <div class="status-items">
+          <div class="stat posture">
+            <span class="stat-k">POSTURE 宏观</span>
+            <span class="stat-v posture-na" id="postureVal">—</span>
           </div>
+          <div class="stat urgent" id="urgentStat">
+            <span class="stat-k">URGENT 立即研究</span>
+            <span class="stat-v" id="urgentVal">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-k">CANDIDATES 候选</span>
+            <span class="stat-v" id="candVal">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-k">ARTICLES 文章</span>
+            <span class="stat-v" id="artVal">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-k">NEXT SCAN 下次</span>
+            <span class="stat-v" id="nextRun" style="font-size:11px">—</span>
+          </div>
+          <div class="live" id="liveDot"><span class="dot"></span><span id="liveText">LIVE</span></div>
         </div>
       </header>
 
-      <section class="metrics" aria-label="Radar metrics">
-        <button class="metric metric-button" data-view-jump="sources" type="button">
-          <span class="metric-label">新闻源</span>
-          <strong id="sourceCount">0</strong>
-        </button>
-        <button class="metric metric-button" data-view-jump="watchlist" type="button">
-          <span class="metric-label">动态观察池</span>
-          <strong id="watchlistCount">0</strong>
-        </button>
-        <div class="metric">
-          <span class="metric-label">已抓取</span>
-          <strong id="fetchedCount">0</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">机会</span>
-          <strong id="signalCount">0</strong>
-        </div>
-      </section>
-
-      <section class="tabs" aria-label="Views">
-        <button class="tab active" data-view="brief" type="button">简报</button>
+      <nav class="tabbar" aria-label="Views">
+        <button class="tab active" data-view="brief" type="button">简报 Brief</button>
+        <button class="tab" data-view="opportunities" type="button">机会 Ideas <span class="tab-badge" id="oppBadge"></span></button>
+        <button class="tab" data-view="watchlist" type="button">观察池</button>
         <button class="tab" data-view="earnings" type="button">财报</button>
         <button class="tab" data-view="technology" type="button">技术</button>
         <button class="tab" data-view="market" type="button">宏观</button>
-        <button class="tab" data-view="opportunities" type="button">机会</button>
-        <button class="tab" data-view="watchlist" type="button">观察池</button>
         <button class="tab" data-view="process" type="button">过程</button>
         <button class="tab" data-view="sources" type="button">来源</button>
-      </section>
+      </nav>
 
-      <section class="workspace">
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2 id="viewTitle">每日简报</h2>
-              <p id="statusLine" role="status">待命</p>
-            </div>
-            <input id="searchBox" type="search" placeholder="筛选 ticker、来源、关键词" aria-label="Filter current view">
-          </div>
+      <div class="toolbar">
+        <h2 id="viewTitle">每日简报</h2>
+        <p id="statusLine" role="status">待命</p>
+        <input id="searchBox" type="search" placeholder="筛选 ticker / 公司 / 来源 / 关键词" aria-label="Filter current view">
+      </div>
 
-          <div id="scanProgress" class="progress" hidden>
-            <div class="progress-bar"></div>
-            <span id="progressText">自动分析运行中</span>
-          </div>
+      <div id="scanProgress" class="progress" hidden>
+        <div class="progress-bar"></div>
+        <span id="progressText">自动分析运行中</span>
+      </div>
 
-          <div id="errorBox" class="errors" hidden></div>
-          <div id="contentArea" class="content-area" aria-live="polite"></div>
-        </section>
-      </section>
-    </main>
+      <div id="errorBox" class="errors" hidden></div>
+
+      <main id="contentArea" aria-live="polite"></main>
+    </div>
     <script src="/app.js"></script>
   </body>
 </html>

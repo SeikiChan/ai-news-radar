@@ -244,6 +244,11 @@ WEAK_BAND = 10.0
 #: Minimum raw evidence score for an article to seed a discovered candidate.
 DISCOVERY_MIN_RAW = 16
 
+#: Aliases this short are treated as ticker/symbol-like and matched
+#: case-sensitively, so a symbol such as "ON" (onsemi) is not triggered by the
+#: English word "on". Longer company-name aliases stay case-insensitive.
+TICKER_MATCH_MAX_LEN = 5
+
 #: Evidence tiers derived from a term's weight. Hard-evidence terms describe a
 #: change in real economics (orders, prepayments, production, guidance); thematic
 #: terms are narrative ("AI", "semiconductor") and must not dominate a score.
@@ -376,8 +381,10 @@ def _grade_confidence(by_tier: dict[str, list[tuple[str, int]]], quantified: boo
 
 
 def score_article(article: Article, watchlist: list[Company]) -> Signal | None:
-    text = f" {article.text.lower()} "
-    matched_companies = _match_companies(text, watchlist)
+    # Company matching needs the original casing so short uppercase tickers can
+    # be told apart from same-spelled English words. Evidence scoring (below)
+    # lower-cases internally.
+    matched_companies = _match_companies(f" {article.text} ", watchlist)
     profile = analyze_evidence(article)
     raw_score = int(profile["raw_score"])
     matched_terms = tuple(profile["matched_terms"])
@@ -414,23 +421,42 @@ def score_evidence(article: Article) -> tuple[int, tuple[str, ...]]:
 
 
 def _match_companies(text: str, watchlist: list[Company]) -> list[Company]:
+    """Match watchlist companies in the (original-case) article ``text``.
+
+    Short ticker/symbol-like aliases (<= ``TICKER_MATCH_MAX_LEN`` chars) are
+    matched case-sensitively against the alias as written, so a symbol such as
+    "ON" (onsemi) is not triggered by the English word "on". Longer
+    company-name aliases stay case-insensitive.
+    """
+    lower_text = text.lower()
     matched: list[Company] = []
     for company in watchlist:
         for alias in company.aliases:
-            alias_clean = alias.lower().strip()
+            alias_clean = alias.strip()
             if not alias_clean:
                 continue
-            if alias_clean in GENERIC_COMPANY_ALIASES:
+            if alias_clean.lower() in GENERIC_COMPANY_ALIASES:
                 continue
-            if len(alias_clean) <= 5:
-                pattern = rf"(?<![a-z0-9]){re.escape(alias_clean)}(?![a-z0-9])"
-                if re.search(pattern, text):
+            if len(alias_clean) <= TICKER_MATCH_MAX_LEN:
+                if _short_alias_match(alias_clean, text):
                     matched.append(company)
                     break
-            elif alias_clean in text:
+            elif alias_clean.lower() in lower_text:
                 matched.append(company)
                 break
     return matched
+
+
+def _short_alias_match(alias: str, text: str) -> bool:
+    """Case-sensitive, word-boundary match of a short symbol alias.
+
+    Tickers and symbols are written in a specific case (usually uppercase);
+    requiring the exact case stops "ON"/"CAT"/"ARM" from matching the common
+    words "on"/"cat"/"arm". Real mentions still match via the symbol's own
+    casing or via the longer company-name alias.
+    """
+    pattern = rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])"
+    return re.search(pattern, text) is not None
 
 
 def _contains_term(text: str, term: str) -> bool:

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "src.abnormal_news_radar", "web", "--port", "8771"],
+      "port": 8771
+    }
+  ]
+}
