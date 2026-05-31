@@ -38,6 +38,13 @@ def main() -> None:
     report.add_argument("--limit", type=int, default=500, help="Max stored rows to evaluate per file.")
     report.add_argument("--json", action="store_true", help="Print the raw report as JSON.")
 
+    daily = subparsers.add_parser(
+        "daily",
+        help="Render a one-page institutional morning report (Markdown) from the latest brief.",
+    )
+    daily.add_argument("--output", default="", help="Write the report to this file instead of stdout.")
+    daily.add_argument("--top", type=int, default=5, help="Number of TOP CALLS to include.")
+
     args = parser.parse_args()
     configure_logging()
     if args.command == "scan":
@@ -48,6 +55,23 @@ def main() -> None:
         serve(host=args.host, port=args.port)
     elif args.command == "report":
         run_report(args)
+    elif args.command == "daily":
+        run_daily(args)
+
+
+def run_daily(args: argparse.Namespace) -> None:
+    from .daily_report import render_daily_report
+    from .web import _brief_payload
+
+    brief = _brief_payload().get("brief", {})
+    markdown = render_daily_report(brief, top_n=args.top)
+    if args.output:
+        path = Path(args.output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(markdown, encoding="utf-8")
+        print(f"Daily report written to {path}")
+    else:
+        print(markdown)
 
 
 def run_report(args: argparse.Namespace) -> None:

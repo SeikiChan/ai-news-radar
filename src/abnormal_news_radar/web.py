@@ -30,9 +30,11 @@ from .net import configure_logging
 from .options_chain import enrich_candidates_with_options_chain_anomalies
 from .options_flow import enrich_candidates_with_options_flow
 from .price_volume import enrich_candidates_with_market_confirmation
+from .quality import enrich_candidates_with_quality_screen
 from .quick_model import enrich_candidates_with_quick_model
 from .readthrough import enrich_candidates_with_readthrough_analysis
 from .scoring import score_article
+from .short_interest import enrich_candidates_with_short_interest
 from .storage import (
     append_candidates,
     append_signals,
@@ -130,6 +132,12 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
             return
         if route.path == "/api/brief":
             self._send_json(_brief_payload())
+            return
+        if route.path == "/api/daily_report":
+            from .daily_report import render_daily_report
+
+            markdown = render_daily_report(_brief_payload().get("brief", {}))
+            self._send_json({"ok": True, "markdown": markdown})
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -246,6 +254,11 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
     selected_candidate_rows = enrich_candidates_with_market_confirmation(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_impact_assessment(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_financial_snapshots(selected_candidate_rows)
+    # Quantitative health check / fraud filter: consumes the SEC snapshot and the
+    # impact amount to flag going-concern risk and order-vs-revenue elasticity.
+    selected_candidate_rows = enrich_candidates_with_quality_screen(selected_candidate_rows)
+    # US-specific squeeze positioning factor: high short interest + hard catalyst.
+    selected_candidate_rows = enrich_candidates_with_short_interest(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_quick_model(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_earnings_analysis(selected_candidate_rows, watchlist=watchlist)
     selected_candidate_rows = enrich_candidates_with_technology_intel(selected_candidate_rows, watchlist=watchlist)

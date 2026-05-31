@@ -379,6 +379,7 @@ function renderTopCall(row) {
     <article class="topcall act-${escapeHtml(action)}">
       <div class="topcall-head">
         <span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span>
+        ${qualityChip(row)}${squeezeChip(row)}
         <span class="topcall-ticker">${escapeHtml(tickers.join(", ") || "待确认")}</span>
         <span class="topcall-name">${escapeHtml(row.company_name || "Unknown")}</span>
         <span class="topcall-score"><b>${Number(row.score || 0).toFixed(1)}</b><span>SCORE · 置信 ${fmtConf(row.confidence)}</span></span>
@@ -388,6 +389,61 @@ function renderTopCall(row) {
       <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · ${escapeHtml(article.title || "")}</a></div>
     </article>
   `;
+}
+
+function qualityChip(row) {
+  const q = objectValue(row.quality_screen);
+  const labels = q.labels || [];
+  if (q.veto) {
+    return `<span class="risk risk-veto" title="${escapeHtml(q.summary_zh || "")}">${escapeHtml(labels[0] || "[高风险归零股]")}</span>`;
+  }
+  if (labels.length) {
+    return `<span class="risk risk-warn" title="${escapeHtml(q.summary_zh || "")}">${escapeHtml(labels[0])}</span>`;
+  }
+  return "";
+}
+
+function squeezeChip(row) {
+  const sq = objectValue(row.short_squeeze);
+  // Suppress the "chase the squeeze" amplifier on a vetoed going-concern name.
+  if (!sq.alert || objectValue(row.quality_screen).veto) return "";
+  return `<span class="risk risk-squeeze" title="${escapeHtml(sq.summary_zh || "")}">🚀 ${escapeHtml(sq.label || "[空头轧空潜力]")}</span>`;
+}
+
+function renderSqueezeDim(row) {
+  const sq = objectValue(row.short_squeeze);
+  if (!sq.status || sq.status === "no_ticker" || sq.status === "unavailable") return "";
+  const cls = sq.alert ? "bad" : sq.potential === "high" || sq.potential === "elevated" ? "warn" : "na";
+  return `
+    <div class="dim" style="grid-column:1/-1;border-left:3px solid var(--${sq.alert ? "red" : "amber"})">
+      <span class="dim-k">空头轧空潜力（美股制度型筹码因子）</span>
+      <span class="dim-v"><span class="ev ${cls}">空头占流通盘 ${escapeHtml(sq.short_percent_display || "n/a")}</span> ${sq.short_ratio_days ? `<span class="ev na">回补天数 ${escapeHtml(Number(sq.short_ratio_days).toFixed(1))}</span>` : ""}</span>
+      <span class="dim-v">${escapeHtml(sq.summary_zh || "")}</span>
+    </div>
+  `;
+}
+
+function renderQualityDim(row) {
+  const q = objectValue(row.quality_screen);
+  if (!q.status || q.status === "no_ticker") return "";
+  const el = objectValue(q.revenue_elasticity);
+  const rw = objectValue(q.runway);
+  const mg = objectValue(q.margin);
+  const cls = q.veto ? "bad" : q.grade === "caution" ? "warn" : q.grade === "ok" ? "ok" : "na";
+  const labels = (q.labels || []).map((l) => `<span class="ev ${q.veto ? "bad" : "warn"}">${escapeHtml(l)}</span>`).join(" ");
+  return `
+    <div class="dim" style="grid-column:1/-1;border-left:3px solid var(--${cls === "bad" ? "red" : cls === "warn" ? "amber" : cls === "ok" ? "green" : "border"})">
+      <span class="dim-k">财务体检（防诈骗 / 防基数幻觉）</span>
+      <span class="dim-v"><span class="ev ${cls}">${escapeHtml(gradeZh(q.grade))}</span> ${labels}</span>
+      <span class="dim-v">${escapeHtml(el.zh || "")}</span>
+      <span class="dim-v">${escapeHtml(mg.zh || "")}</span>
+      <span class="dim-v">${escapeHtml(rw.zh || "")}</span>
+    </div>
+  `;
+}
+
+function gradeZh(grade) {
+  return { high_risk: "高风险", caution: "需谨慎", ok: "通过", unknown: "数据不足" }[grade] || "未体检";
 }
 
 function evidenceChips(row) {
@@ -454,7 +510,7 @@ function renderOppRow(row) {
   const tickers = candidateTickers(row);
   return `
     <tr class="opp-row ${open ? "open" : ""}" data-key="${escapeHtml(key)}">
-      <td><span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span></td>
+      <td><span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span>${qualityChip(row)}${squeezeChip(row)}</td>
       <td class="col-ticker">${escapeHtml(tickers.join(", ") || "—")}</td>
       <td class="col-name col-hide-md">${escapeHtml(row.company_name || "Unknown")}</td>
       <td class="col-num">${Number(row.score || 0).toFixed(1)}</td>
@@ -496,7 +552,7 @@ function renderDetail(row) {
       <div class="detail-decision">${escapeHtml(row.decision || "")}</div>
       ${row.analyst_take ? `<div class="detail-take">${escapeHtml(row.analyst_take)}</div>` : ""}
       <div class="row-meta"><span class="pill">证据层 ${escapeHtml(row.evidence_tier || "n/a")}</span><span class="pill">置信 ${fmtConf(row.confidence)}</span>${terms}</div>
-      ${dimCards ? `<div class="detail-grid">${dimCards}</div>` : ""}
+      ${dimCards || renderQualityDim(row) || renderSqueezeDim(row) ? `<div class="detail-grid">${renderSqueezeDim(row)}${renderQualityDim(row)}${dimCards}</div>` : ""}
       ${missing ? `<div><span class="dim-k">还缺</span><div class="missing-list" style="margin-top:6px">${missing}</div></div>` : ""}
       ${renderTechnologyIntel(row)}
       ${renderEarningsAnalysis(row)}
@@ -554,8 +610,10 @@ function renderWatchlistItem(row) {
           <span class="band ${Number(row.conviction || 0) >= 4 ? "hard" : "watch"}">信念 ${escapeHtml(row.conviction || 0)}/5</span>
           <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(row.company_name || "Unknown")}</a>
           <span class="pill">${escapeHtml(candidateTickers(row).join(", ") || "ticker待确认")}</span>
+          ${qualityChip(row)}${squeezeChip(row)}
         </div>
         <div class="terms">${escapeHtml(row.decision_zh || "")}</div>
+        ${renderQualityDim(row) || renderSqueezeDim(row) ? `<div class="detail-grid">${renderSqueezeDim(row)}${renderQualityDim(row)}</div>` : ""}
         <div class="row-meta">${evidenceChips(row)}</div>
         ${renderTechnologyIntel(row)}
         ${renderEarningsAnalysis(row)}
@@ -1159,6 +1217,31 @@ elements.searchBox.addEventListener("input", (event) => {
   state.query = event.target.value;
   render();
 });
+
+const exportButton = document.querySelector("#exportReport");
+if (exportButton) {
+  exportButton.addEventListener("click", async () => {
+    exportButton.disabled = true;
+    try {
+      const response = await fetch("/api/daily_report");
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error || "导出失败");
+      const blob = new Blob([payload.markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ai-news-radar-daily-${todayLocalIso()}.md`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      showErrors([userFacingError(error)]);
+    } finally {
+      exportButton.disabled = false;
+    }
+  });
+}
 
 elements.tabs.forEach((tab) => {
   tab.addEventListener("click", () => setView(tab.dataset.view));

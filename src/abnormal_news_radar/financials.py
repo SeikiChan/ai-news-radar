@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from urllib.request import Request, urlopen
 
 USER_AGENT = "AI-News-Radar/0.1 research-tool contact=local@example.com"
@@ -18,6 +19,15 @@ COST_REVENUE_CONCEPTS = (
     "CostOfGoodsAndServicesSold",
     "CostOfGoodsSold",
     "CostOfRevenueGoodsAndServices",
+)
+CASH_CONCEPTS = (
+    "CashAndCashEquivalentsAtCarryingValue",
+    "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations",
+)
+OPERATING_CASH_FLOW_CONCEPTS = (
+    "NetCashProvidedByUsedInOperatingActivities",
+    "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
 )
 
 
@@ -65,6 +75,10 @@ def fetch_financial_snapshot(
         revenue = _latest_annual_fact(facts, REVENUE_CONCEPTS)
         gross_profit = _latest_annual_fact(facts, GROSS_PROFIT_CONCEPTS)
         cost_revenue = _latest_annual_fact(facts, COST_REVENUE_CONCEPTS)
+        ttm_revenue_musd = _ttm_revenue_musd(facts)
+        gross_margin_trend = _gross_margin_trend(facts)
+        cash_musd = _latest_instant_musd(facts, CASH_CONCEPTS)
+        quarterly_ocf_musd = _latest_quarterly_musd(facts, OPERATING_CASH_FLOW_CONCEPTS)
     except Exception as exc:  # noqa: BLE001 - one ticker must not fail the scan.
         return _snapshot_unavailable(symbol, str(exc), source_url, cik=cik, company_name=str(company.get("name") or ""))
 
@@ -103,6 +117,12 @@ def fetch_financial_snapshot(
         "cost_revenue_musd": cost_revenue_musd,
         "cost_revenue_concept": cost_revenue.get("concept") if cost_revenue else None,
         "gross_margin_pct": gross_margin_pct,
+        # Extra series for the quality / safety screen (see quality.py).
+        "ttm_revenue_musd": ttm_revenue_musd,
+        "revenue_base_musd": ttm_revenue_musd if ttm_revenue_musd is not None else revenue_musd,
+        "gross_margin_trend_pct": gross_margin_trend,
+        "cash_musd": cash_musd,
+        "quarterly_operating_cash_flow_musd": quarterly_ocf_musd,
         "source": "SEC companyfacts",
         "source_url": source_url,
         "missing_fields": missing_fields,
@@ -168,6 +188,95 @@ def _is_annual(row: dict[str, object]) -> bool:
         return True
     frame = str(row.get("frame") or "")
     return frame.startswith("CY") and not any(frame.endswith(f"Q{quarter}") for quarter in range(1, 5))
+
+
+def _duration_days(start: str, end: str) -> int | None:
+    try:
+        return (date.fromisoformat(end[:10]) - date.fromisoformat(start[:10])).days
+    except ValueError:
+        return None
+
+
+def _quarterly_series(facts: dict[str, object], concepts: tuple[str, ...]) -> list[dict[str, object]]:
+    """Recent ~3-month (single-quarter) duration facts, deduped by period end.
+
+    Uses the first concept that yields quarterly data so different revenue tags
+    are not summed together. Returns rows sorted oldest -> newest.
+    """
+    for concept in concepts:
+        fact = facts.get(concept)
+        if not isinstance(fact, dict):
+            continue
+        rows = fact.get("units", {}).get("USD") if isinstance(fact.get("units"), dict) else None
+        if not isinstance(rows, list):
+            continue
+        by_end: dict[str, dict[str, object]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            value = _to_float(row.get("val"))
+            end = str(row.get("end") or "")
+            start = str(row.get("start") or "")
+            if value is None or not end or not start:
+                continue
+            days = _duration_days(start, end)
+            if days is None or not (80 <= days <= 100):
+                continue
+            filed = str(row.get("filed") or "")
+            previous = by_end.get(end)
+            if previous is None or filed > str(previous.get("filed") or ""):
+                by_end[end] = {"end": end, "value": value, "filed": filed}
+        if by_end:
+            return [by_end[end] for end in sorted(by_end)]
+    return []
+
+
+def _ttm_revenue_musd(facts: dict[str, object]) -> float | None:
+    series = _quarterly_series(facts, REVENUE_CONCEPTS)
+    if len(series) >= 4:
+        return _usd_to_millions(sum(float(row["value"]) for row in series[-4:]))
+    annual = _latest_annual_fact(facts, REVENUE_CONCEPTS)
+    return _usd_to_millions(float(annual["value"])) if annual else None
+
+
+def _gross_margin_trend(facts: dict[str, object]) -> list[float]:
+    revenue = {str(row["end"]): float(row["value"]) for row in _quarterly_series(facts, REVENUE_CONCEPTS)}
+    gross_profit = {str(row["end"]): float(row["value"]) for row in _quarterly_series(facts, GROSS_PROFIT_CONCEPTS)}
+    trend: list[float] = []
+    for end in sorted(set(revenue) & set(gross_profit)):
+        base = revenue[end]
+        if base:
+            trend.append(round(gross_profit[end] / base * 100, 2))
+    return trend[-4:]
+
+
+def _latest_instant_musd(facts: dict[str, object], concepts: tuple[str, ...]) -> float | None:
+    for concept in concepts:
+        fact = facts.get(concept)
+        if not isinstance(fact, dict):
+            continue
+        rows = fact.get("units", {}).get("USD") if isinstance(fact.get("units"), dict) else None
+        if not isinstance(rows, list):
+            continue
+        best: dict[str, object] | None = None
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            value = _to_float(row.get("val"))
+            end = str(row.get("end") or "")
+            if value is None or not end:
+                continue
+            key = (end, str(row.get("filed") or ""))
+            if best is None or key > (str(best["end"]), str(best["filed"])):
+                best = {"end": end, "filed": str(row.get("filed") or ""), "value": value}
+        if best is not None:
+            return _usd_to_millions(float(best["value"]))
+    return None
+
+
+def _latest_quarterly_musd(facts: dict[str, object], concepts: tuple[str, ...]) -> float | None:
+    series = _quarterly_series(facts, concepts)
+    return _usd_to_millions(float(series[-1]["value"])) if series else None
 
 
 def _candidate_snapshot(candidate: dict[str, object], snapshots: dict[str, dict[str, object]]) -> dict[str, object]:

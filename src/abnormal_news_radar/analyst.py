@@ -146,6 +146,10 @@ def _analyst_report_items(candidates: list[dict[str, object]]) -> list[dict[str,
             continue
         row = dict(candidate)
         row["action"] = _action(score, str(candidate.get("status") or ""))
+        # A failed financial health check (going-concern risk) vetoes urgency:
+        # a cash-burning penny stock must never be promoted to "research now".
+        if _quality_screen(row).get("veto") and row["action"] in {"research_now", "track"}:
+            row["action"] = "monitor"
         row["decision"] = _decision(row)
         row["missing_confirmations"] = _missing_confirmations(row)
         row["analyst_take"] = _analyst_take(row)
@@ -191,6 +195,11 @@ def _analyst_take(candidate: dict[str, object]) -> str:
 
 
 def _decision(candidate: dict[str, object]) -> str:
+    quality = _quality_screen(candidate)
+    if quality.get("veto"):
+        return "高风险归零股，一票否决：先解释生存能力，不投入研究"
+    if "[流血中标]" in (quality.get("labels") or []):
+        return "毛利率连续恶化，警惕流血中标：先确认订单是否真的赚钱"
     score = float(candidate.get("score", 0) or 0)
     status = str(candidate.get("status") or "")
     market_status = str(_market_confirmation(candidate).get("status") or "")
@@ -224,6 +233,12 @@ def _decision(candidate: dict[str, object]) -> str:
 
 def _missing_confirmations(candidate: dict[str, object]) -> list[str]:
     missing = []
+    quality = _quality_screen(candidate)
+    if quality.get("veto"):
+        missing.append("生存能力存疑（现金跑道 < 6 个月）")
+    elasticity = quality.get("revenue_elasticity") if isinstance(quality.get("revenue_elasticity"), dict) else {}
+    if elasticity.get("band") == "unknown" and candidate.get("tickers"):
+        missing.append("订单金额 vs 收入基数（弹性）未知")
     impact = _impact_assessment(candidate)
     if not impact:
         missing.append("financial impact estimate")
@@ -330,6 +345,10 @@ def _dynamic_watchlist_items(
             row.get("expectation_check"),
             candidate.get("expectation_check"),
         )
+        row["quality_screen"] = _merge_quality_screen(
+            row.get("quality_screen"),
+            candidate.get("quality_screen"),
+        )
         if _article_time(article) >= _article_time(row.get("latest_article", {})):
             row["latest_article"] = article
 
@@ -343,6 +362,9 @@ def _dynamic_watchlist_items(
             str(_expectation_check(row).get("status") or ""),
             str(_options_flow(row).get("status") or ""),
         )
+        # A failed financial health check overrides conviction entirely.
+        if _quality_screen(row).get("veto"):
+            conviction = 0
         item = dict(row)
         item["conviction"] = conviction
         item["decision_zh"] = _watchlist_decision_zh(conviction, market_regime)
@@ -469,6 +491,11 @@ def _options_flow(candidate: dict[str, object]) -> dict[str, object]:
 
 def _expectation_check(candidate: dict[str, object]) -> dict[str, object]:
     value = candidate.get("expectation_check")
+    return value if isinstance(value, dict) else {}
+
+
+def _quality_screen(candidate: dict[str, object]) -> dict[str, object]:
+    value = candidate.get("quality_screen")
     return value if isinstance(value, dict) else {}
 
 
@@ -889,6 +916,18 @@ def _merge_options_flow(existing: object, new_value: object) -> dict[str, object
         "no_flow_evidence": 0,
     }
     return incoming if rank.get(str(incoming.get("status") or ""), -1) > rank.get(str(current.get("status") or ""), -1) else current
+
+
+def _merge_quality_screen(existing: object, new_value: object) -> dict[str, object]:
+    current = existing if isinstance(existing, dict) else {}
+    incoming = new_value if isinstance(new_value, dict) else {}
+    if not current:
+        return incoming
+    if not incoming:
+        return current
+    # Keep the most cautious screen (high_risk > caution > ok > unknown).
+    rank = {"high_risk": 3, "caution": 2, "ok": 1, "unknown": 0}
+    return incoming if rank.get(str(incoming.get("grade")), 0) > rank.get(str(current.get("grade")), 0) else current
 
 
 def _merge_expectation_check(existing: object, new_value: object) -> dict[str, object]:

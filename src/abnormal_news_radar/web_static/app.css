@@ -408,6 +408,27 @@ table.opp tbody tr.opp-row.open { background: var(--surface-2); }
 .act.act-monitor { background: var(--surface-3); color: var(--muted); border: 1px solid var(--border); }
 .act.act-identify_then_monitor { background: var(--blue-dim); color: #9ccbf2; border: 1px solid #2c4f72; }
 
+/* financial-health risk badge */
+.risk {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.risk-veto { background: var(--red); color: #160b09; }
+.risk-warn { background: var(--amber-dim); color: #edc56e; border: 1px solid #6a5526; }
+.risk-squeeze { background: #d12f2f; color: #fff5e6; box-shadow: 0 0 0 0 rgba(209, 47, 47, 0.7); animation: squeeze-pulse 1.6s infinite; }
+
+@keyframes squeeze-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(209, 47, 47, 0.6); }
+  70% { box-shadow: 0 0 0 7px rgba(209, 47, 47, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(209, 47, 47, 0); }
+}
+
 /* traffic-light evidence chip */
 .ev {
   display: inline-flex;
