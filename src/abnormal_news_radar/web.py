@@ -139,6 +139,11 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
             markdown = render_daily_report(_brief_payload().get("brief", {}))
             self._send_json({"ok": True, "markdown": markdown})
             return
+        if route.path == "/api/earnings":
+            query = parse_qs(route.query)
+            month = query.get("month", [""])[0]
+            self._send_json(_earnings_month_payload(month))
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_HEAD(self) -> None:  # noqa: N802 - stdlib handler API.
@@ -387,6 +392,54 @@ def _merge_candidate_rows(primary: list[dict[str, object]], stored: list[dict[st
         rows.append(row)
     rows.sort(key=lambda row: (float(row.get("score", 0)), _article_value(row, "fetched_at")), reverse=True)
     return rows[:limit]
+
+
+EARNINGS_MONTH_CACHE: dict[str, dict[str, object]] = {}
+EARNINGS_MONTH_LOCK = threading.Lock()
+
+
+def _earnings_month_payload(month: str) -> dict[str, object]:
+    """Earnings for a specific calendar month (YYYY-MM) for the grid view, cached."""
+    from datetime import date as _date
+
+    try:
+        year_str, month_str = month.split("-")
+        year, month_num = int(year_str), int(month_str)
+        if not (1 <= month_num <= 12):
+            raise ValueError("month out of range")
+    except (ValueError, AttributeError):
+        today = _date.today()
+        year, month_num = today.year, today.month
+    key = f"{year:04d}-{month_num:02d}"
+
+    cached = EARNINGS_MONTH_CACHE.get(key)
+    if cached is not None:
+        generated = str(cached.get("generated_at") or "")
+        try:
+            if generated and datetime.now(timezone.utc) - datetime.fromisoformat(generated) < EARNINGS_CACHE_TTL:
+                return {"ok": True, "calendar": cached}
+        except ValueError:
+            pass
+
+    with EARNINGS_MONTH_LOCK:
+        cached = EARNINGS_MONTH_CACHE.get(key)
+        if cached is not None:
+            generated = str(cached.get("generated_at") or "")
+            try:
+                if generated and datetime.now(timezone.utc) - datetime.fromisoformat(generated) < EARNINGS_CACHE_TTL:
+                    return {"ok": True, "calendar": cached}
+            except ValueError:
+                pass
+        from .earnings_calendar import collect_earnings_month
+
+        try:
+            watchlist = load_watchlist(PROJECT_ROOT / "config" / "watchlist.json")
+            calendar = collect_earnings_month(list(watchlist), year, month_num)
+        except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
+            calendar = {"status": "degraded", "month": key, "items": [], "errors": [str(exc)],
+                        "summary_zh": f"财报月历连接失败：{exc}"}
+        EARNINGS_MONTH_CACHE[key] = calendar
+        return {"ok": True, "calendar": calendar}
 
 
 def _brief_payload() -> dict[str, object]:

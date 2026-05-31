@@ -595,7 +595,78 @@ table.opp tbody tr.opp-row.open { background: var(--surface-2); }
 .readthrough-list { display: grid; gap: 8px; }
 .readthrough-row { border-top: 1px solid var(--border); padding-top: 8px; }
 
-/* earnings calendar */
+/* earnings month-grid calendar */
+.calendar {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.cal-head strong { font-size: 15px; font-family: var(--mono); min-width: 130px; text-align: center; }
+.cal-nav {
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  border-radius: 6px;
+  width: 34px; height: 30px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.cal-nav:hover { border-color: var(--blue); color: var(--text); }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.cal-wd {
+  background: var(--surface-3);
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  padding: 6px 0;
+}
+.cal-cell {
+  background: var(--surface);
+  min-height: 78px;
+  padding: 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cal-empty { background: var(--bg); }
+.cal-today { background: #151b16; box-shadow: inset 0 0 0 1px var(--amber); }
+.cal-daynum { font-size: 11px; color: var(--subtle); font-family: var(--mono); }
+.cal-today .cal-daynum { color: var(--amber); font-weight: 800; }
+.cal-evs { display: flex; flex-direction: column; gap: 3px; }
+.cal-ev {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border: 1px solid #2c4f72;
+  background: var(--blue-dim);
+  color: #cfe4f7;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 700;
+  cursor: pointer;
+}
+.cal-ev:hover, .cal-ev.active { border-color: var(--amber); background: #23303d; color: #fff; }
+.cal-ev-t { font-size: 9px; color: var(--muted); font-weight: 400; }
+
+/* legacy earnings calendar (unused by month grid, kept for safety) */
 .earnings-calendar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .earnings-day { display: grid; align-content: start; gap: 10px; min-height: 150px; }
 .earnings-day.today { border-color: var(--amber); background: #181410; }

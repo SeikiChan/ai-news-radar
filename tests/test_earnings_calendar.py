@@ -2,7 +2,7 @@ import json
 import unittest
 from datetime import date
 
-from src.abnormal_news_radar.earnings_calendar import collect_earnings_calendar
+from src.abnormal_news_radar.earnings_calendar import collect_earnings_calendar, collect_earnings_month
 from src.abnormal_news_radar.model import Company
 
 
@@ -54,6 +54,22 @@ class EarningsCalendarTests(unittest.TestCase):
 
         self.assertEqual(calendar["items"][0]["date"], "2026-05-27")
         self.assertIn("主流观察标的财报", calendar["summary_zh"])
+
+
+    def test_collect_month_covers_full_calendar_month(self):
+        watchlist = [Company(ticker="AVGO", name="Broadcom", aliases=("AVGO",), themes=("ai_datacenter",))]
+        seen_dates = []
+
+        def fetcher(url):
+            seen_dates.append(url.split("date=")[1])
+            return json.dumps({"data": {"rows": [{"symbol": "AVGO", "time": "time-after-hours"}]}})
+
+        calendar = collect_earnings_month(watchlist, 2026, 6, fetcher=fetcher, today=date(2026, 6, 1))
+
+        self.assertEqual(calendar["month"], "2026-06")
+        self.assertEqual(calendar["window"], {"from": "2026-06-01", "to": "2026-06-30"})
+        self.assertEqual(len(seen_dates), 30)  # one request per day of June
+        self.assertEqual(len(calendar["items"]), 30)
 
 
 if __name__ == "__main__":

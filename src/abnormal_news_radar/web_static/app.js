@@ -11,7 +11,13 @@ const state = {
   selectedEarningsTicker: initialSelectedEarningsTicker(),
   openRows: new Set(),
   stale: false,
+  calendar: { month: currentMonthIso(), items: [], summary: "", loaded: false, loading: false },
 };
+
+function currentMonthIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
 
 const AUTO_REFRESH_MS = 60000;
 
@@ -629,67 +635,110 @@ function renderWatchlistItem(row) {
 /* EARNINGS                                                           */
 /* ------------------------------------------------------------------ */
 function renderEarnings() {
-  const calendar = state.brief?.earnings_calendar || {};
-  const items = calendar.items || [];
+  const cal = state.calendar;
+  if (!cal.loaded && !cal.loading) {
+    loadEarningsMonth(cal.month);
+  }
+  const [year, month] = cal.month.split("-").map(Number);
+  const items = cal.items || [];
   const detailsByTicker = earningsDetailsByTicker(items);
   const selectedTicker = selectedCalendarTicker(items, detailsByTicker);
   const selectedItem = items.find((item) => tickerOf(item) === selectedTicker) || null;
   const selectedDetail = selectedTicker ? detailsByTicker.get(selectedTicker) : null;
+  const note = cal.loading ? "加载中…" : `本月 ${items.length} 个观察标的财报`;
 
   elements.contentArea.innerHTML = `
     <section class="section-head">
-      <div>
-        <h3>财报日历</h3>
-        <p>${escapeHtml(calendar.summary_zh || "未来窗口暂无重点财报。")} 一级入口只显示日历事件；新闻拆解作为对应公司的详情证据。</p>
-      </div>
+      <div><h3>财报日历 · 被选中公司</h3><p>${escapeHtml(note)}。点公司查看详情；用 ◀ ▶ 翻月浏览整个季度。</p></div>
     </section>
-    ${renderEarningsCalendar(items, detailsByTicker, selectedTicker)}
-
-    <section class="section-head">
-      <div><h3>${todayLocalIso()} 财报简报</h3><p>当天若没有重点公司，则显示最近一个待跟踪财报。</p></div>
-    </section>
-    <div class="content-grid">${renderTodayEarningsBrief(items, detailsByTicker)}</div>
+    ${renderCalendarGrid(year, month, items, selectedTicker)}
 
     <section class="section-head">
       <div><h3>${selectedTicker ? `${escapeHtml(selectedTicker)} 财报详情` : "财报详情"}</h3><p>核心财务指标、资金投向、提到的公司/产业链对象，以及二阶 read-through。</p></div>
     </section>
     ${renderSelectedEarningsDetail(selectedItem, selectedDetail)}
   `;
+  bindCalendarNav();
   bindEarningsButtons();
 }
 
-function renderEarningsCalendar(items, detailsByTicker, selectedTicker) {
-  if (!items.length) return '<div class="empty">未来窗口内暂无主流观察标的财报。</div>';
-  const grouped = groupRows(items, (item) => item.date || "unknown");
-  const days = Object.entries(grouped)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, rows]) => `
-      <article class="earnings-day ${date === todayLocalIso() ? "today" : ""}">
-        <div class="row-title">
-          ${escapeHtml(formatDateLabel(date))}
-          ${date === todayLocalIso() ? '<span class="pill">今天</span>' : ""}
-        </div>
-        <div class="earnings-company-list">
-          ${rows.map((item) => renderEarningsCompanyButton(item, detailsByTicker, selectedTicker)).join("")}
-        </div>
-      </article>
-    `)
-    .join("");
-  return `<section class="earnings-calendar">${days}</section>`;
+function renderCalendarGrid(year, month, items, selectedTicker) {
+  const byDay = {};
+  items.forEach((item) => {
+    const iso = String(item.date || "");
+    if (!iso) return;
+    const day = Number(iso.split("-")[2]);
+    (byDay[day] = byDay[day] || []).push(item);
+  });
+  const startIdx = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Monday-first
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const todayIso = todayLocalIso();
+
+  const cells = [];
+  for (let i = 0; i < startIdx; i++) cells.push('<div class="cal-cell cal-empty"></div>');
+  for (let day = 1; day <= daysInMonth; day++) {
+    const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const evs = byDay[day] || [];
+    const chips = evs
+      .map((item) => {
+        const ticker = tickerOf(item);
+        const active = ticker === selectedTicker ? "active" : "";
+        return `<button class="cal-ev ${active}" type="button" data-earnings-ticker="${escapeHtml(ticker)}" title="${escapeHtml((item.name || "") + " · " + timeZh(item.time || ""))}">${escapeHtml(ticker)}<span class="cal-ev-t">${escapeHtml(timeShort(item.time || ""))}</span></button>`;
+      })
+      .join("");
+    cells.push(`<div class="cal-cell ${iso === todayIso ? "cal-today" : ""}"><div class="cal-daynum">${day}</div><div class="cal-evs">${chips}</div></div>`);
+  }
+  while (cells.length % 7 !== 0) cells.push('<div class="cal-cell cal-empty"></div>');
+
+  const weekdays = ["一", "二", "三", "四", "五", "六", "日"].map((d) => `<div class="cal-wd">${d}</div>`).join("");
+  return `
+    <div class="calendar">
+      <div class="cal-head">
+        <button class="cal-nav" type="button" data-cal-nav="prev" aria-label="上个月">◀</button>
+        <strong>${year} 年 ${month} 月</strong>
+        <button class="cal-nav" type="button" data-cal-nav="next" aria-label="下个月">▶</button>
+      </div>
+      <div class="cal-grid">${weekdays}${cells.join("")}</div>
+    </div>
+  `;
 }
 
-function renderEarningsCompanyButton(item, detailsByTicker, selectedTicker) {
-  const ticker = tickerOf(item);
-  const hasDetail = detailsByTicker.has(ticker);
-  const active = ticker === selectedTicker ? "active" : "";
-  return `
-    <button class="earnings-company ${active}" type="button" data-earnings-ticker="${escapeHtml(ticker)}">
-      <strong>${escapeHtml(ticker)}</strong>
-      <span>${escapeHtml(item.name || "")}</span>
-      <small>${escapeHtml(timeZh(item.time || ""))} · EPS ${escapeHtml(item.eps_forecast || "n/a")}</small>
-      <em>${hasDetail ? "已拆解" : "待发布/待抓取"}</em>
-    </button>
-  `;
+function timeShort(value) {
+  const low = String(value || "").toLowerCase();
+  if (low.includes("before")) return "盘前";
+  if (low.includes("after")) return "盘后";
+  if (low.includes("during")) return "盘中";
+  return "";
+}
+
+async function loadEarningsMonth(monthStr) {
+  state.calendar.loading = true;
+  state.calendar.loaded = true;
+  try {
+    const response = await fetch(`/api/earnings?month=${encodeURIComponent(monthStr)}`);
+    const payload = await response.json();
+    if (payload.ok) {
+      state.calendar.month = monthStr;
+      state.calendar.items = (payload.calendar && payload.calendar.items) || [];
+      state.calendar.summary = (payload.calendar && payload.calendar.summary_zh) || "";
+    }
+  } catch (error) {
+    showErrors([userFacingError(error)]);
+  } finally {
+    state.calendar.loading = false;
+    if (state.view === "earnings") renderEarnings();
+  }
+}
+
+function bindCalendarNav() {
+  document.querySelectorAll("[data-cal-nav]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const [year, month] = state.calendar.month.split("-").map(Number);
+      const shifted = new Date(year, month - 1 + (button.dataset.calNav === "next" ? 1 : -1), 1);
+      state.selectedEarningsTicker = null;
+      loadEarningsMonth(`${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, "0")}`);
+    });
+  });
 }
 
 function renderTodayEarningsBrief(items, detailsByTicker) {

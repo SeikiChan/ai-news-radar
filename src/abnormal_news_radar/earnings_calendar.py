@@ -26,11 +26,39 @@ def collect_earnings_calendar(
     days_back: int = DEFAULT_DAYS_BACK,
     days_forward: int = DEFAULT_DAYS_FORWARD,
 ) -> dict[str, object]:
-    focus = {company.ticker.upper(): company for company in watchlist}
     if today is None:
         today = _local_today()
-    fetch = fetcher or _fetch_text
     targets = [today + timedelta(days=offset) for offset in range(-days_back, days_forward + 1)]
+    return _collect_for_dates(watchlist, targets, fetcher, today)
+
+
+def collect_earnings_month(
+    watchlist: list[Company],
+    year: int,
+    month: int,
+    fetcher: object | None = None,
+    today: date | None = None,
+) -> dict[str, object]:
+    """Collect a full calendar month of focused-watchlist earnings (for the grid view)."""
+    import calendar as _calendar
+
+    if today is None:
+        today = _local_today()
+    last_day = _calendar.monthrange(year, month)[1]
+    targets = [date(year, month, day) for day in range(1, last_day + 1)]
+    payload = _collect_for_dates(watchlist, targets, fetcher, today)
+    payload["month"] = f"{year:04d}-{month:02d}"
+    return payload
+
+
+def _collect_for_dates(
+    watchlist: list[Company],
+    targets: list[date],
+    fetcher: object | None,
+    today: date,
+) -> dict[str, object]:
+    focus = {company.ticker.upper(): company for company in watchlist}
+    fetch = fetcher or _fetch_text
     rows: list[dict[str, object]] = []
     errors: list[str] = []
 
@@ -53,10 +81,7 @@ def collect_earnings_calendar(
         "status": "connected" if rows or not errors else "degraded",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "local_trading_date": today.isoformat(),
-        "window": {
-            "from": (today - timedelta(days=days_back)).isoformat(),
-            "to": (today + timedelta(days=days_forward)).isoformat(),
-        },
+        "window": {"from": targets[0].isoformat(), "to": targets[-1].isoformat()} if targets else {},
         "source": "Nasdaq public earnings calendar API",
         "source_url": NASDAQ_EARNINGS_URL.format(date=today.isoformat()),
         "items": rows,
