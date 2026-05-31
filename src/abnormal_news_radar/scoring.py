@@ -249,6 +249,24 @@ DISCOVERY_MIN_RAW = 16
 #: English word "on". Longer company-name aliases stay case-insensitive.
 TICKER_MATCH_MAX_LEN = 5
 
+#: Common English words that also appear as tickers ("ON", "CAT") or as the
+#: leading word of a company name ("On Semiconductor", "ARM Holdings"). They are
+#: dangerous because they collide with ordinary prose ("...transistors on
+#: semiconductor substrates...", "robotic arm"). Aliases that ARE one of these
+#: short words require an explicit ticker context ($ON / (ON) / NASDAQ: ON);
+#: longer aliases that START with one require the match to carry real
+#: capitalization (rejecting all-lowercase coincidental phrases). The company
+#: still matches via its distinctive aliases ("onsemi", "Caterpillar").
+_AMBIGUOUS_WORD_ALIASES: frozenset[str] = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "big", "by", "can", "core", "do",
+    "for", "go", "high", "id", "if", "in", "is", "it", "key", "low", "new",
+    "next", "no", "now", "of", "ok", "on", "one", "open", "or", "real", "so",
+    "the", "to", "two", "up", "us", "we", "arm", "cat", "hon", "ten",
+})
+
+#: Exchange prefixes that unambiguously introduce a ticker symbol.
+_TICKER_CONTEXT_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
 #: Evidence tiers derived from a term's weight. Hard-evidence terms describe a
 #: change in real economics (orders, prepayments, production, guidance); thematic
 #: terms are narrative ("AI", "semiconductor") and must not dominate a score.
@@ -423,40 +441,64 @@ def score_evidence(article: Article) -> tuple[int, tuple[str, ...]]:
 def _match_companies(text: str, watchlist: list[Company]) -> list[Company]:
     """Match watchlist companies in the (original-case) article ``text``.
 
-    Short ticker/symbol-like aliases (<= ``TICKER_MATCH_MAX_LEN`` chars) are
-    matched case-sensitively against the alias as written, so a symbol such as
-    "ON" (onsemi) is not triggered by the English word "on". Longer
-    company-name aliases stay case-insensitive.
+    Matching is deliberately conservative to avoid false attributions:
+
+    * short ticker aliases that spell an English word ("ON", "CAT") need an
+      explicit ticker context ("$ON", "(ON)", "NASDAQ: ON");
+    * other short aliases use case-sensitive word-boundary matching ("AMD");
+    * company-name aliases use word-boundary matching, and if the name *starts*
+      with an English word ("On Semiconductor") an all-lowercase coincidental
+      phrase ("...on semiconductor substrates...") is rejected.
     """
-    lower_text = text.lower()
     matched: list[Company] = []
     for company in watchlist:
         for alias in company.aliases:
             alias_clean = alias.strip()
-            if not alias_clean:
+            if not alias_clean or alias_clean.lower() in GENERIC_COMPANY_ALIASES:
                 continue
-            if alias_clean.lower() in GENERIC_COMPANY_ALIASES:
-                continue
-            if len(alias_clean) <= TICKER_MATCH_MAX_LEN:
-                if _short_alias_match(alias_clean, text):
-                    matched.append(company)
-                    break
-            elif alias_clean.lower() in lower_text:
+            if _alias_in_text(alias_clean, text):
                 matched.append(company)
                 break
     return matched
 
 
-def _short_alias_match(alias: str, text: str) -> bool:
-    """Case-sensitive, word-boundary match of a short symbol alias.
+def _alias_in_text(alias: str, text: str) -> bool:
+    alias_lower = alias.lower()
+    leading_word = alias_lower.split(" ", 1)[0]
+    ambiguous = leading_word in _AMBIGUOUS_WORD_ALIASES
 
-    Tickers and symbols are written in a specific case (usually uppercase);
-    requiring the exact case stops "ON"/"CAT"/"ARM" from matching the common
-    words "on"/"cat"/"arm". Real mentions still match via the symbol's own
-    casing or via the longer company-name alias.
-    """
-    pattern = rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])"
-    return re.search(pattern, text) is not None
+    if len(alias) <= TICKER_MATCH_MAX_LEN:
+        if ambiguous:
+            # A bare English-word symbol only counts inside a ticker context.
+            return _ticker_context_match(alias, text)
+        # Distinctive short symbol (AMD, NVDA): case-sensitive word boundary.
+        return re.search(rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])", text) is not None
+
+    boundary = rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])"
+    if not ambiguous:
+        return re.search(boundary, text, re.IGNORECASE) is not None
+    # Name starts with an English word: accept only when that leading word is
+    # itself capitalized, so "On Semiconductor"/"ON Semiconductor" (the company)
+    # match, but neither the lowercase phrase "on semiconductor substrates" nor
+    # the preposition in "...appeared first on Semiconductor Engineering" does.
+    for match in re.finditer(boundary, text, re.IGNORECASE):
+        if match.group(0)[:1].isupper():
+            return True
+    return False
+
+
+def _ticker_context_match(alias: str, text: str) -> bool:
+    """True when ``alias`` appears as an explicit ticker, e.g. ``$ON``, ``(ON)``,
+    ``ON:`` or ``NASDAQ: ON`` — never as a bare prose word."""
+    pattern = _TICKER_CONTEXT_RE_CACHE.get(alias)
+    if pattern is None:
+        symbol = re.escape(alias)
+        pattern = re.compile(
+            rf"(?:[$(]|(?:NYSE|NASDAQ|Nasdaq|NMS|OTC|AMEX|CBOE)\s*:\s*){symbol}(?![A-Za-z0-9])"
+            rf"|(?<![A-Za-z0-9]){symbol}[):]"
+        )
+        _TICKER_CONTEXT_RE_CACHE[alias] = pattern
+    return pattern.search(text) is not None
 
 
 def _contains_term(text: str, term: str) -> bool:

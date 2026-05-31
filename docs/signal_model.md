@@ -94,4 +94,7 @@ rather than by intuition.
 - A stock already up 300%+ should require stronger evidence before alerting.
 - OTC and foreign ordinary names need a liquidity warning in the output.
 - A strategic counterparty name alone is not enough. It only adds weight when the article also contains order, production, revenue, qualification, capacity, or similar evidence language.
-- Short ticker/symbol aliases (≤ 5 chars, e.g. `ON`, `CAT`, `ARM`) are matched case-sensitively against the original text, so the symbol `ON` (onsemi) is not triggered by the English word "on". Real mentions still match via the uppercase symbol or the full company name.
+- Company matching is deliberately conservative to avoid false attributions:
+  - Short symbols that spell an English word (`ON`, `CAT`, `ARM`, `HON`) only match inside an explicit ticker context (`$ON`, `(ON)`, `NASDAQ: ON`), never as a bare prose word.
+  - Names that *start* with an English word (`On Semiconductor`, `ARM Holdings`) match only when that leading word is capitalized, so neither the phrase "...transistors on semiconductor substrates..." nor the boilerplate "...appeared first on Semiconductor Engineering" is mis-attributed to onsemi.
+  - Companies still match reliably via distinctive aliases (`onsemi`, `Caterpillar`, `Arm Holdings`) and uppercase symbols (`AMD`, `NVDA`).

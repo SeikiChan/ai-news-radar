@@ -78,11 +78,27 @@ def test_short_ticker_on_does_not_match_english_word_on():
         assert "ON" not in signal.tickers
 
 
-def test_uppercase_ticker_symbol_still_matches():
+def test_on_semiconductor_name_does_not_match_lowercase_phrase():
+    # The real-world false positive: "On Semiconductor" colliding with the
+    # ordinary phrase "...on semiconductor substrates...".
     article = _article(
-        "Shares of ON rose after a multi-year production order with capacity reservation",
-        "Analysts cited the order.",
+        "Building fixed hardware implementations of neural networks on semiconductor substrates",
+        "The work studies inference on semiconductor hardware and production tradeoffs.",
     )
+    signal = score_article(article, _onsemi_watchlist())
+    if signal is not None:
+        assert "ON" not in signal.tickers
+
+
+def test_on_semiconductor_name_matches_when_capitalized():
+    article = _article("On Semiconductor signs multi-year production order with capacity reservation")
+    signal = score_article(article, _onsemi_watchlist())
+    assert signal is not None
+    assert "ON" in signal.tickers
+
+
+def test_ticker_context_matches_bare_symbol():
+    article = _article("onsemi (NASDAQ: ON) wins a multi-year production order with capacity reservation")
     signal = score_article(article, _onsemi_watchlist())
     assert signal is not None
     assert "ON" in signal.tickers

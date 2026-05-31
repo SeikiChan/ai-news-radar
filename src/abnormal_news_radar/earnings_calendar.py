@@ -1,36 +1,52 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
-from urllib.request import Request, urlopen
 
 from .model import Company
+from .net import fetch_text
 
 NASDAQ_EARNINGS_URL = "https://api.nasdaq.com/api/calendar/earnings?date={date}"
 FETCH_TIMEOUT_SECONDS = 8
 USER_AGENT = "Mozilla/5.0 (AI-News-Radar earnings-calendar)"
+
+#: Default look-ahead window. ~5 weeks forward covers the rolling month an
+#: analyst wants to browse; pass a larger ``days_forward`` (e.g. 95) for a full
+#: quarter at the cost of more per-day API calls.
+DEFAULT_DAYS_BACK = 2
+DEFAULT_DAYS_FORWARD = 35
+MAX_DAY_WORKERS = 6
 
 
 def collect_earnings_calendar(
     watchlist: list[Company],
     fetcher: object | None = None,
     today: date | None = None,
-    days_back: int = 1,
-    days_forward: int = 14,
+    days_back: int = DEFAULT_DAYS_BACK,
+    days_forward: int = DEFAULT_DAYS_FORWARD,
 ) -> dict[str, object]:
     focus = {company.ticker.upper(): company for company in watchlist}
     if today is None:
         today = _local_today()
     fetch = fetcher or _fetch_text
+    targets = [today + timedelta(days=offset) for offset in range(-days_back, days_forward + 1)]
     rows: list[dict[str, object]] = []
     errors: list[str] = []
 
-    for offset in range(-days_back, days_forward + 1):
-        target = today + timedelta(days=offset)
+    def fetch_one(target: date) -> tuple[date, list[dict[str, object]] | None, str | None]:
         try:
-            rows.extend(_fetch_day(target, focus, fetch))
+            return target, _fetch_day(target, focus, fetch), None
         except Exception as exc:  # noqa: BLE001 - calendar should degrade without killing brief.
-            errors.append(f"{target.isoformat()}: {exc}")
+            return target, None, str(exc)
+
+    workers = max(1, min(MAX_DAY_WORKERS, len(targets)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for target, day_rows, error in pool.map(fetch_one, targets):
+            if error is not None:
+                errors.append(f"{target.isoformat()}: {error}")
+            else:
+                rows.extend(day_rows or [])
 
     rows.sort(key=lambda row: (str(row.get("date") or ""), _time_rank(str(row.get("time") or "")), str(row.get("ticker") or "")))
     return {
@@ -126,9 +142,9 @@ def _summary_zh(rows: list[dict[str, object]], errors: list[str]) -> str:
 
 
 def _fetch_text(url: str) -> str:
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        return response.read().decode("utf-8", errors="replace")
+    # Nasdaq blocks non-browser agents, so keep the Mozilla UA while still
+    # getting shared retry/backoff from the hardened client.
+    return fetch_text(url, accept="application/json", timeout=FETCH_TIMEOUT_SECONDS, headers={"User-Agent": USER_AGENT})
 
 
 def _local_today() -> date:

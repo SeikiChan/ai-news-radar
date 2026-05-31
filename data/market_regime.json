@@ -3,7 +3,7 @@
   "regime": "risk_on",
   "score": 5,
   "summary": "宏观环境支持成长股和高 beta 标的。宏观分数=5；核心数据连接=3/5。主因：标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善。 来源错误数：1。",
-  "generated_at": "2026-05-30T18:34:22.848687+00:00",
+  "generated_at": "2026-05-31T05:13:37.325777+00:00",
   "drivers": [
     "标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善",
     "纳斯达克 100 ETF 近 20 个观察日上涨 10.6%，风险偏好正在改善",
@@ -489,20 +489,20 @@
     },
     {
       "source": "Trump Truth Social Mirror RSS",
-      "title": "[No Title] - Post from May 30, 2026",
-      "link": "https://www.trumpstruth.org/statuses/38908",
-      "published": "Sat, 30 May 2026 17:55:39 +0000",
-      "summary": "",
+      "title": "Dhillon wants judge who allegedly attended a Fani Willis event off Georgia election integrity case:",
+      "link": "https://www.trumpstruth.org/statuses/38956",
+      "published": "Sun, 31 May 2026 05:08:48 +0000",
+      "summary": "Dhillon wants judge who allegedly attended a Fani Willis event off Georgia election integrity case: https:// justthenews.com/government/cou rts-law/dhillon-moves-recuse-atlanta-judge-over-alleged-attendance-democratic-event",
       "policy_importance": 1,
       "policy_topics": [],
       "market_read": "政策源事件：保留原文链接，等待主题匹配。"
     },
     {
       "source": "Trump Truth Social Mirror RSS",
-      "title": "[No Title] - Post from May 30, 2026",
-      "link": "https://www.trumpstruth.org/statuses/38905",
-      "published": "Sat, 30 May 2026 17:16:53 +0000",
-      "summary": "",
+      "title": "Cotton over chemicals: How Trump’s USDA is Making America’s Fabric Great Again:",
+      "link": "https://www.trumpstruth.org/statuses/38957",
+      "published": "Sun, 31 May 2026 05:08:16 +0000",
+      "summary": "Cotton over chemicals: How Trump’s USDA is Making America’s Fabric Great Again: https:// justthenews.com/government/whi te-house/cotton-over-chemicals-how-trumps-usda-making-americas-fabric-great-again",
       "policy_importance": 1,
       "policy_topics": [],
       "market_read": "政策源事件：保留原文链接，等待主题匹配。"
