@@ -8,7 +8,36 @@ from src.abnormal_news_radar.financials import (
     _ttm_revenue_musd,
     enrich_candidates_with_financial_snapshots,
     fetch_financial_snapshot,
+    fetch_recent_filings,
 )
+
+
+class RecentFilingsTests(unittest.TestCase):
+    def _submissions(self):
+        return json.dumps({
+            "filings": {"recent": {
+                "form": ["10-Q", "8-K", "4", "10-K"],
+                "filingDate": ["2026-05-20", "2026-05-20", "2026-05-01", "2026-02-20"],
+                "reportDate": ["2026-04-26", "", "", "2026-01-28"],
+                "accessionNumber": ["0001045810-26-000052", "0001045810-26-000051", "x", "0001045810-26-000010"],
+                "primaryDocument": ["nvda-20260426.htm", "nvda-8k.htm", "form4.xml", "nvda-10k.htm"],
+                "primaryDocDescription": ["10-Q", "8-K", "FORM 4", "10-K"],
+            }}
+        })
+
+    def test_recent_filings_builds_edgar_urls_and_filters_forms(self):
+        filings = fetch_recent_filings(1045810, fetcher=lambda _url: self._submissions())
+        forms = [f["form"] for f in filings]
+        self.assertEqual(forms, ["10-Q", "8-K", "10-K"])  # Form 4 filtered out
+        self.assertEqual(
+            filings[0]["doc_url"],
+            "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000052/nvda-20260426.htm",
+        )
+
+    def test_recent_filings_degrades_on_error(self):
+        def boom(_url):
+            raise RuntimeError("429")
+        self.assertEqual(fetch_recent_filings(123, fetcher=boom), [])
 
 
 def _q(start, end, val):

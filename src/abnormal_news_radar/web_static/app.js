@@ -12,6 +12,7 @@ const state = {
   openRows: new Set(),
   stale: false,
   calendar: { month: currentMonthIso(), items: [], summary: "", loaded: false, loading: false },
+  financials: {},
 };
 
 function currentMonthIso() {
@@ -703,6 +704,7 @@ function renderEarnings() {
   const selectedTicker = selectedCalendarTicker(items, detailsByTicker);
   const selectedItem = items.find((item) => tickerOf(item) === selectedTicker) || null;
   const selectedDetail = selectedTicker ? detailsByTicker.get(selectedTicker) : null;
+  if (selectedTicker) loadFinancials(selectedTicker);
   const note = cal.loading ? "加载中…" : `本月 ${items.length} 个观察标的财报`;
 
   elements.contentArea.innerHTML = `
@@ -836,37 +838,132 @@ function renderTodayEarningsBrief(items, detailsByTicker) {
 
 function renderSelectedEarningsDetail(item, detail) {
   if (!item) return '<div class="empty">没有可展示的财报事件。</div>';
-  if (detail) return `<div class="content-grid">${renderEarningsCard(detail)}</div>`;
+  const finState = state.financials[tickerOf(item)];
   return `
     <div class="content-grid">
-      <article class="row">
-        <div class="row-title">${escapeHtml(tickerOf(item))} ${escapeHtml(item.name || "")}<span class="pill">${escapeHtml(item.status_zh || "")}</span></div>
-        <div class="row-meta">
-          <span>日期=${escapeHtml(item.date || "")}</span>
-          <span>时间=${escapeHtml(timeZh(item.time || ""))}</span>
-          <span>EPS预期=${escapeHtml(item.eps_forecast || "n/a")}</span>
-          <span>来源=Nasdaq public earnings calendar API</span>
-        </div>
-        <div class="terms">还没有抓到可拆解的财报原文。系统不会用模板伪造结论；等公司发布 release/10-Q/call transcript 后再解析。</div>
-      </article>
+      ${renderFinancialTiles(finState, item)}
+      ${renderFilings(finState)}
+      ${detail ? renderEarningsCard(detail) : renderNoReleaseCard(item)}
     </div>
   `;
 }
 
+function renderFinancialTiles(finState, item) {
+  const snap = finState && typeof finState === "object" ? finState.snapshot : null;
+  const tiles = [statTile("EPS 预期（一致）", escapeHtml(item.eps_forecast || "n/a"), "blue")];
+  let note = "";
+  const ready = snap && (snap.status === "ok" || snap.status === "partial" || snap.revenue_musd != null);
+  if (ready) {
+    tiles.push(statTile("TTM 营收", formatMusd(snap.ttm_revenue_musd != null ? snap.ttm_revenue_musd : snap.revenue_musd), "accent"));
+    tiles.push(statTile("毛利率", snap.gross_margin_pct != null ? `${Number(snap.gross_margin_pct).toFixed(1)}%` : "n/a", "accent"));
+    tiles.push(statTile("最新年度营收", formatMusd(snap.revenue_musd)));
+    tiles.push(statTile("现金及等价物", formatMusd(snap.cash_musd)));
+    tiles.push(statTile("季度经营现金流", formatMusd(snap.quarterly_operating_cash_flow_musd)));
+    note = `来源：SEC companyfacts（XBRL 实际披露）${snap.period_end ? ` · 截至 ${escapeHtml(snap.period_end)}` : ""}${snap.fiscal_year ? ` · FY${escapeHtml(String(snap.fiscal_year))}` : ""}`;
+  } else if (finState === "loading" || finState === undefined) {
+    note = "正在从 SEC 拉取实际财务…";
+  } else {
+    note = "SEC 实际财务暂不可用（该标的可能不是美国注册申报人，或暂无标准 XBRL 标签）。";
+  }
+  return `
+    <article class="row fin-panel">
+      <div class="row-title">${escapeHtml(tickerOf(item))} ${escapeHtml(item.name || "")} · 核心财务（SEC 实际披露）</div>
+      <div class="stat-tiles">${tiles.join("")}</div>
+      <div class="terms">${note}</div>
+    </article>
+  `;
+}
+
+function renderFilings(finState) {
+  const filings = finState && typeof finState === "object" && Array.isArray(finState.filings) ? finState.filings : [];
+  if (!filings.length) {
+    if (finState === "loading" || finState === undefined) return "";
+    return "";
+  }
+  const rows = filings.slice(0, 8).map((f) => `
+    <a class="filing-row" href="${escapeHtml(f.doc_url || "#")}" target="_blank" rel="noreferrer">
+      <span class="filing-form">${escapeHtml(f.form || "")}</span>
+      <span class="filing-date">${escapeHtml(f.filed || "")}</span>
+      <span class="filing-desc">${escapeHtml(f.description || _filingFormZh(f.form))}</span>
+      <span class="filing-open">打开 ↗</span>
+    </a>
+  `).join("");
+  return `
+    <article class="row">
+      <div class="row-title">最新 SEC 文件（EDGAR 实际申报 · 权威原文）</div>
+      <div class="filing-list">${rows}</div>
+      <div class="terms">10-Q/10-K 为季度/年度财报全文，8-K 为重大事件（含业绩 release）。点击直达 SEC EDGAR 原文。</div>
+    </article>
+  `;
+}
+
+function _filingFormZh(form) {
+  const map = { "10-K": "年度报告", "10-Q": "季度报告", "8-K": "重大事件 / 业绩公告", "20-F": "外国公司年报", "6-K": "外国公司中期报告" };
+  return map[form] || "SEC 文件";
+}
+
+function renderNoReleaseCard(item) {
+  return `
+    <article class="row">
+      <div class="row-title">本次财报 release 拆解 <span class="pill">${escapeHtml(item.status_zh || "")}</span></div>
+      <div class="row-meta"><span>日期=${escapeHtml(item.date || "")}</span><span>时间=${escapeHtml(timeZh(item.time || ""))}</span><span>来源=Nasdaq 日历</span></div>
+      <div class="terms">尚未在新闻流抓到该公司的财报 release 原文。上方为 SEC 实际披露财务；待公司发布 release/10-Q/call transcript 后，这里会补充本季的 beat/miss、资金投向与二阶 read-through（系统不会用模板伪造）。</div>
+    </article>
+  `;
+}
+
+function statTile(label, value, variant) {
+  return `<div class="stat-tile ${variant || ""}"><span class="st-v">${value}</span><span class="st-k">${label}</span></div>`;
+}
+
+function formatMusd(musd) {
+  const v = Number(musd);
+  if (musd == null || !Number.isFinite(v)) return "n/a";
+  if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(2)}B`;
+  return `$${v.toFixed(0)}M`;
+}
+
+async function loadFinancials(ticker) {
+  if (!ticker || state.financials[ticker] !== undefined) return;
+  state.financials[ticker] = "loading";
+  try {
+    const response = await fetch(`/api/financials?ticker=${encodeURIComponent(ticker)}`);
+    const payload = await response.json();
+    state.financials[ticker] = payload.ok ? { snapshot: payload.snapshot, filings: payload.filings || [] } : null;
+  } catch (error) {
+    state.financials[ticker] = null;
+  }
+  if (state.view === "earnings") renderEarnings();
+}
+
 function earningsDetailsByTicker(calendarItems) {
-  const calendarTickers = new Set((calendarItems || []).map(tickerOf).filter(Boolean));
+  const nameByTicker = new Map((calendarItems || []).map((i) => [tickerOf(i), String(i.name || "")]));
   const details = new Map();
-  visibleCandidates()
-    .filter(hasEarningsAnalysis)
-    .forEach((candidate) => {
-      const ticker = candidateTickers(candidate).find((value) => calendarTickers.has(value));
-      if (!ticker) return;
+  visibleCandidates().forEach((candidate) => {
+    const analysis = objectValue(candidate.earnings_analysis);
+    // Only a genuinely parsed earnings release counts — not any article that
+    // merely mentions the ticker (that caused e.g. NVDA -> an IREN story).
+    if (analysis.status !== "earnings_release_detected") return;
+    const title = String(articleOf(candidate).title || "");
+    candidateTickers(candidate).forEach((ticker) => {
+      if (!nameByTicker.has(ticker)) return;
+      if (!isEarningsSubject(title, candidate.company_name, nameByTicker.get(ticker))) return;
       const current = details.get(ticker);
       if (!current || earningsQualityScore(candidate) > earningsQualityScore(current)) {
         details.set(ticker, candidate);
       }
     });
+  });
   return details;
+}
+
+function isEarningsSubject(title, companyName, calendarName) {
+  // The company must be the article's subject (its name at the head of the
+  // title, or the discovered company_name), not just a mention deeper in.
+  const firstWord = String(calendarName || "").toLowerCase().split(/[\s,.]+/)[0];
+  if (!firstWord || firstWord.length < 3) return false;
+  const head = title.toLowerCase().slice(0, 45);
+  return head.includes(firstWord) || String(companyName || "").toLowerCase().includes(firstWord);
 }
 
 function earningsQualityScore(candidate) {
@@ -1084,14 +1181,16 @@ function renderSources() {
 function renderEarningsAnalysis(candidate) {
   const analysis = objectValue(candidate.earnings_analysis);
   if (!analysis.status || analysis.status === "not_earnings") return "";
-  const metrics = (analysis.metrics || []).slice(0, 8).map((metric) => `<span class="pill">${escapeHtml(metric.metric)}=${escapeHtml(metric.value)} ${escapeHtml(metric.unit)}</span>`).join("");
+  const metricTiles = (analysis.metrics || []).slice(0, 8)
+    .map((metric) => statTile(metricLabelZh(metric.metric), `${escapeHtml(String(metric.value))}${metric.unit ? " " + escapeHtml(String(metric.unit)) : ""}`, "accent"))
+    .join("");
   const spend = (analysis.spend_allocation || []).slice(0, 8).map((item) => `<span class="pill">${escapeHtml(spendCategoryZh(item.category))}</span>`).join("");
   const mentions = (analysis.mentioned_companies || []).slice(0, 8).map((item) => `<span class="pill">${escapeHtml(item.ticker)} ${escapeHtml(item.name || "")}</span>`).join("");
   const points = (analysis.watch_points_zh || []).slice(0, 5).map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("");
   return `
     <div class="earnings-analysis">
-      <div><span class="band ${analysis.status === "earnings_release_detected" ? "hard" : "watch"}">${escapeHtml(analysis.status)}</span> ${escapeHtml(analysis.summary_zh || "")}</div>
-      <div class="row-meta">${metrics || "<span>未抽取到明确财务数字</span>"}</div>
+      <div><span class="band ${analysis.status === "earnings_release_detected" ? "hard" : "watch"}">本次 release 关键指标</span> ${escapeHtml(analysis.summary_zh || "")}</div>
+      ${metricTiles ? `<div class="stat-tiles">${metricTiles}</div>` : '<div class="terms">未抽取到明确财务数字</div>'}
       <div class="row-title">钱花在哪里</div>
       <div class="row-meta">${spend || "<span>财报原文暂未识别明确资金投向</span>"}</div>
       <div class="row-title">提到的公司/产业链对象</div>
@@ -1192,6 +1291,20 @@ function timeZh(value) {
 function spendCategoryZh(category) {
   const map = { rd: "研发", sales_marketing: "销售/市场", capex: "资本开支", buyback: "回购", mna: "并购/战略投资" };
   return map[category] || category || "未分类";
+}
+
+function metricLabelZh(metric) {
+  const map = {
+    revenue: "营收",
+    product_revenue: "产品营收",
+    eps: "EPS",
+    rpo: "RPO 剩余履约义务",
+    net_revenue_retention: "净收入留存 NRR",
+    capex: "资本开支",
+    research_development: "研发支出",
+    free_cash_flow: "自由现金流",
+  };
+  return map[metric] || metric || "指标";
 }
 
 function techThemeZh(theme) {

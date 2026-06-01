@@ -598,6 +598,70 @@ table.opp tbody tr.opp-row.open { background: var(--surface-2); }
 .readthrough-list { display: grid; gap: 8px; }
 .readthrough-row { border-top: 1px solid var(--border); padding-top: 8px; }
 
+/* prominent financial stat tiles (earnings workbench) */
+.fin-panel { border-color: #2c5740; }
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 12px 14px;
+}
+.stat-tile .st-v {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.1;
+}
+.stat-tile .st-k {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.stat-tile.accent { border-color: #2c5740; background: #11201a; }
+.stat-tile.accent .st-v { color: var(--green); }
+.stat-tile.blue { border-color: #2c4f72; background: #11202f; }
+.stat-tile.blue .st-v { color: var(--blue); }
+
+/* SEC filings list */
+.filing-list { display: grid; gap: 6px; margin: 8px 0; }
+.filing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  text-decoration: none;
+  color: var(--text);
+}
+.filing-row:hover { border-color: var(--blue); background: #15212b; }
+.filing-form {
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 12px;
+  color: #cfe4f7;
+  background: var(--blue-dim);
+  border: 1px solid #2c4f72;
+  border-radius: 4px;
+  padding: 2px 8px;
+  min-width: 52px;
+  text-align: center;
+}
+.filing-date { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 92px; }
+.filing-desc { flex: 1; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filing-open { font-size: 12px; color: var(--blue); }
+
 /* earnings month-grid calendar */
 .calendar {
   border: 1px solid var(--border);

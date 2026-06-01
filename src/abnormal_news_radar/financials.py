@@ -31,6 +31,69 @@ OPERATING_CASH_FLOW_CONCEPTS = (
 )
 
 
+def load_default_cik_map() -> dict[str, dict[str, object]]:
+    """Public accessor for the SEC ticker->CIK map (used by on-demand lookups)."""
+    return _load_cik_map(_fetch_text)
+
+
+FILING_FORMS = ("10-K", "10-Q", "8-K", "20-F", "40-F", "6-K")
+
+
+def fetch_recent_filings(
+    cik: int,
+    fetcher: object | None = None,
+    forms: tuple[str, ...] = FILING_FORMS,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    """Recent SEC EDGAR filings for a CIK with direct document links.
+
+    Returns the actual 10-Q / 10-K / 8-K documents from the SEC submissions API
+    — the authoritative filing for any US registrant, always available. Empty
+    list on failure.
+    """
+    fetch = fetcher or _fetch_text
+    try:
+        payload = json.loads(fetch(_submissions_url(int(cik))))
+        recent = (payload.get("filings") or {}).get("recent") or {}
+    except Exception:  # noqa: BLE001 - degrade cleanly.
+        return []
+    forms_list = recent.get("form") or []
+    filed = recent.get("filingDate") or []
+    reports = recent.get("reportDate") or []
+    accessions = recent.get("accessionNumber") or []
+    documents = recent.get("primaryDocument") or []
+    descriptions = recent.get("primaryDocDescription") or []
+
+    out: list[dict[str, object]] = []
+    for index, form in enumerate(forms_list):
+        if forms and form not in forms:
+            continue
+        accession = accessions[index] if index < len(accessions) else ""
+        document = documents[index] if index < len(documents) else ""
+        accession_nodash = accession.replace("-", "")
+        doc_url = (
+            f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodash}/{document}"
+            if accession_nodash and document
+            else f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={int(cik)}&type={form}"
+        )
+        out.append(
+            {
+                "form": form,
+                "filed": filed[index] if index < len(filed) else "",
+                "report_date": reports[index] if index < len(reports) else "",
+                "description": descriptions[index] if index < len(descriptions) else "",
+                "doc_url": doc_url,
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _submissions_url(cik: int) -> str:
+    return f"https://data.sec.gov/submissions/CIK{cik:010d}.json"
+
+
 def enrich_candidates_with_financial_snapshots(
     candidates: list[dict[str, object]],
     fetcher: object | None = None,
@@ -200,9 +263,14 @@ def _duration_days(start: str, end: str) -> int | None:
 def _quarterly_series(facts: dict[str, object], concepts: tuple[str, ...]) -> list[dict[str, object]]:
     """Recent ~3-month (single-quarter) duration facts, deduped by period end.
 
-    Uses the first concept that yields quarterly data so different revenue tags
-    are not summed together. Returns rows sorted oldest -> newest.
+    Picks the concept with the **most recent** quarterly data — companies switch
+    XBRL revenue tags over time (e.g. NVIDIA's old
+    ``RevenueFromContractWithCustomerExcludingAssessedTax`` stops in 2020 while
+    current revenue lives under ``Revenues``), so taking the first non-empty
+    concept would return stale data. Returns rows sorted oldest -> newest.
     """
+    best_series: list[dict[str, object]] = []
+    best_end = ""
     for concept in concepts:
         fact = facts.get(concept)
         if not isinstance(fact, dict):
@@ -227,8 +295,11 @@ def _quarterly_series(facts: dict[str, object], concepts: tuple[str, ...]) -> li
             if previous is None or filed > str(previous.get("filed") or ""):
                 by_end[end] = {"end": end, "value": value, "filed": filed}
         if by_end:
-            return [by_end[end] for end in sorted(by_end)]
-    return []
+            series = [by_end[end] for end in sorted(by_end)]
+            if series[-1]["end"] > best_end:
+                best_end = str(series[-1]["end"])
+                best_series = series
+    return best_series
 
 
 def _ttm_revenue_musd(facts: dict[str, object]) -> float | None:

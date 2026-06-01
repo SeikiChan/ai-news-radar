@@ -146,6 +146,11 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
             month = query.get("month", [""])[0]
             self._send_json(_earnings_month_payload(month))
             return
+        if route.path == "/api/financials":
+            query = parse_qs(route.query)
+            ticker = query.get("ticker", [""])[0]
+            self._send_json(_financials_payload(ticker))
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_HEAD(self) -> None:  # noqa: N802 - stdlib handler API.
@@ -402,6 +407,46 @@ def _merge_candidate_rows(primary: list[dict[str, object]], stored: list[dict[st
 
 EARNINGS_MONTH_CACHE: dict[str, dict[str, object]] = {}
 EARNINGS_MONTH_LOCK = threading.Lock()
+FINANCIALS_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+FINANCIALS_CACHE_TTL_SECONDS = 6 * 3600
+CIK_MAP_CACHE: dict[str, dict[str, object]] = {}
+FINANCIALS_LOCK = threading.Lock()
+
+
+def _financials_payload(ticker: str) -> dict[str, object]:
+    """Authoritative SEC companyfacts snapshot for one ticker, fetched on demand.
+
+    Powers the earnings workbench so any company (e.g. MRVL) shows real reported
+    financials even when no earnings-release article has been captured. Cached
+    for a few hours since SEC data only changes quarterly.
+    """
+    import time as _time
+
+    symbol = str(ticker or "").upper().strip()
+    if not symbol:
+        return {"ok": False, "error": "missing ticker"}
+
+    cached = FINANCIALS_CACHE.get(symbol)
+    if cached is not None and _time.time() - cached[0] < FINANCIALS_CACHE_TTL_SECONDS:
+        return {"ok": True, "ticker": symbol, **cached[1]}
+
+    with FINANCIALS_LOCK:
+        cached = FINANCIALS_CACHE.get(symbol)
+        if cached is not None and _time.time() - cached[0] < FINANCIALS_CACHE_TTL_SECONDS:
+            return {"ok": True, "ticker": symbol, **cached[1]}
+        from .financials import fetch_financial_snapshot, fetch_recent_filings, load_default_cik_map
+
+        try:
+            if not CIK_MAP_CACHE:
+                CIK_MAP_CACHE.update(load_default_cik_map())
+            snapshot = fetch_financial_snapshot(symbol, cik_map=CIK_MAP_CACHE)
+            company = CIK_MAP_CACHE.get(symbol)
+            filings = fetch_recent_filings(int(company["cik"])) if company else []
+        except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
+            return {"ok": True, "ticker": symbol, "snapshot": {"status": "unavailable", "reason": str(exc)[:160]}, "filings": []}
+        result = {"snapshot": snapshot, "filings": filings}
+        FINANCIALS_CACHE[symbol] = (_time.time(), result)
+        return {"ok": True, "ticker": symbol, **result}
 
 
 def _earnings_month_payload(month: str) -> dict[str, object]:
