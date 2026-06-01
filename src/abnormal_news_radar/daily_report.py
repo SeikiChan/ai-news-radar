@@ -120,6 +120,7 @@ def _render_call(index: int, item: dict[str, object]) -> list[str]:
 
     quality = _dict(item.get("quality_screen"))
     squeeze = _dict(item.get("short_squeeze"))
+    flow = _dict(item.get("institutional_flow"))
     flags = []
     if quality.get("veto"):
         flags.append("🛑 " + (_first_label(quality) or "[高风险归零股]"))
@@ -127,6 +128,10 @@ def _render_call(index: int, item: dict[str, object]) -> list[str]:
         flags.append("⚠ [流血中标]")
     if squeeze.get("alert") and not quality.get("veto"):
         flags.append("🚀 " + (str(squeeze.get("label")) or "[空头轧空潜力]"))
+    if flow.get("flow") == "accumulation":
+        flags.append("🏦 机构吸筹")
+    elif flow.get("flow") == "distribution":
+        flags.append("🏦 机构派发")
     if flags:
         head += "  " + " ".join(flags)
 
@@ -139,6 +144,8 @@ def _render_call(index: int, item: dict[str, object]) -> list[str]:
         lines.append(f"   - 营收弹性：{el.get('zh')}")
     if squeeze.get("status") == "ok" and squeeze.get("potential") in {"high", "elevated"}:
         lines.append(f"   - 空头：{squeeze.get('summary_zh')}")
+    if flow.get("flow") in {"accumulation", "distribution"}:
+        lines.append(f"   - 机构：{flow.get('summary_zh')}")
     title = str(article.get("title") or "")
     link = str(article.get("link") or "")
     source = str(article.get("source") or "")
@@ -158,11 +165,17 @@ def _evidence_line(item: dict[str, object]) -> str:
 def _risk_flag(row: dict[str, object]) -> str:
     quality = _dict(row.get("quality_screen"))
     squeeze = _dict(row.get("short_squeeze"))
+    flow = _dict(row.get("institutional_flow"))
+    parts = []
     if quality.get("veto"):
-        return " 🛑高风险"
+        parts.append(" 🛑高风险")
     if squeeze.get("alert"):
-        return " 🚀轧空"
-    return ""
+        parts.append(" 🚀轧空")
+    if flow.get("flow") == "accumulation":
+        parts.append(" 🏦吸筹")
+    elif flow.get("flow") == "distribution":
+        parts.append(" 🏦派发")
+    return "".join(parts)
 
 
 def _first_label(screen: dict[str, object]) -> str:

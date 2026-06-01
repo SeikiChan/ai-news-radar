@@ -25,10 +25,12 @@ from .expectations import enrich_candidates_with_expectation_check
 from .feeds import fetch_sources
 from .financials import enrich_candidates_with_financial_snapshots
 from .impact import enrich_candidates_with_impact_assessment
+from .institutional_flow import enrich_candidates_with_institutional_flow
 from .market import collect_market_regime
 from .net import configure_logging
 from .options_chain import enrich_candidates_with_options_chain_anomalies
 from .options_flow import enrich_candidates_with_options_flow
+from .pdf_intel import enrich_candidates_with_pdf_intel
 from .price_volume import enrich_candidates_with_market_confirmation
 from .quality import enrich_candidates_with_quality_screen
 from .quick_model import enrich_candidates_with_quick_model
@@ -264,9 +266,13 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
     selected_candidate_rows = enrich_candidates_with_quality_screen(selected_candidate_rows)
     # US-specific squeeze positioning factor: high short interest + hard catalyst.
     selected_candidate_rows = enrich_candidates_with_short_interest(selected_candidate_rows)
+    # Smart-money flow: 13F-derived institutional accumulation / distribution.
+    selected_candidate_rows = enrich_candidates_with_institutional_flow(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_quick_model(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_earnings_analysis(selected_candidate_rows, watchlist=watchlist)
     selected_candidate_rows = enrich_candidates_with_technology_intel(selected_candidate_rows, watchlist=watchlist)
+    # Download & parse public PDFs (arXiv papers, .pdf links) for full-text evidence.
+    selected_candidate_rows = enrich_candidates_with_pdf_intel(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_readthrough_analysis(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_options_flow(
         selected_candidate_rows,

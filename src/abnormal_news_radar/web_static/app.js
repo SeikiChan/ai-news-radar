@@ -306,6 +306,18 @@ function updateStatusStrip() {
   elements.liveText.textContent = state.stale ? "OFFLINE" : "LIVE";
 }
 
+function updateScanProgress(lastScan) {
+  // Hide the "first scan" banner once the in-session scan has completed OR we
+  // already have stored data to show. Otherwise it would linger forever, since
+  // the periodic refresh — not just initial load — now keeps it in sync.
+  const completed = Boolean(lastScan && lastScan.completed_at);
+  const hasData = (state.candidates && state.candidates.length > 0) || reportRows().length > 0;
+  elements.scanProgress.hidden = completed || hasData;
+  if (!elements.scanProgress.hidden) {
+    elements.progressText.textContent = "首次自动分析进行中…（含全文/机构/空头富化，约 1–2 分钟）";
+  }
+}
+
 function shortTime(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -385,7 +397,7 @@ function renderTopCall(row) {
     <article class="topcall act-${escapeHtml(action)}">
       <div class="topcall-head">
         <span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span>
-        ${qualityChip(row)}${squeezeChip(row)}
+        ${qualityChip(row)}${squeezeChip(row)}${flowChip(row)}${pdfChip(row)}
         <span class="topcall-ticker">${escapeHtml(tickers.join(", ") || "待确认")}</span>
         <span class="topcall-name">${escapeHtml(row.company_name || "Unknown")}</span>
         <span class="topcall-score"><b>${Number(row.score || 0).toFixed(1)}</b><span>SCORE · 置信 ${fmtConf(row.confidence)}</span></span>
@@ -414,6 +426,52 @@ function squeezeChip(row) {
   // Suppress the "chase the squeeze" amplifier on a vetoed going-concern name.
   if (!sq.alert || objectValue(row.quality_screen).veto) return "";
   return `<span class="risk risk-squeeze" title="${escapeHtml(sq.summary_zh || "")}">🚀 ${escapeHtml(sq.label || "[空头轧空潜力]")}</span>`;
+}
+
+function pdfChip(row) {
+  const p = objectValue(row.pdf_intel);
+  if (p.status !== "ok") return "";
+  return `<span class="risk risk-pdf" title="${escapeHtml(p.summary_zh || "")}">📄 全文已读</span>`;
+}
+
+function renderPdfDim(row) {
+  const p = objectValue(row.pdf_intel);
+  if (p.status !== "ok") return "";
+  const extra = (p.extra_terms || []).slice(0, 10).map((t) => `<span class="ev ok">${escapeHtml(t)}</span>`).join(" ");
+  return `
+    <div class="dim" style="grid-column:1/-1;border-left:3px solid var(--blue)">
+      <span class="dim-k">全文解析（PDF · pypdf）</span>
+      <span class="dim-v"><span class="ev na">${escapeHtml(String(p.page_count ?? "?"))} 页</span> <span class="ev na">全文证据层 ${escapeHtml(p.evidence_tier || "n/a")}</span> <span class="ev na">全文分 ${escapeHtml(String(p.full_text_score ?? 0))}</span></span>
+      ${extra ? `<span class="dim-v">较标题新增硬证据：</span><span class="dim-v">${extra}</span>` : ""}
+      ${p.excerpt ? `<span class="dim-v" style="color:var(--muted)">摘录：${escapeHtml(p.excerpt)}</span>` : ""}
+      ${p.source_url ? `<span class="dim-v"><a href="${escapeHtml(p.source_url)}" target="_blank" rel="noreferrer">打开 PDF ↗</a></span>` : ""}
+    </div>
+  `;
+}
+
+function flowChip(row) {
+  const f = objectValue(row.institutional_flow);
+  if (f.flow === "accumulation") {
+    return `<span class="risk risk-accum" title="${escapeHtml(f.summary_zh || "")}">🏦 机构吸筹</span>`;
+  }
+  if (f.flow === "distribution") {
+    return `<span class="risk risk-distrib" title="${escapeHtml(f.summary_zh || "")}">🏦 机构派发</span>`;
+  }
+  return "";
+}
+
+function renderFlowDim(row) {
+  const f = objectValue(row.institutional_flow);
+  if (!f.status || f.status === "no_ticker" || f.status === "unavailable") return "";
+  const cls = f.flow === "accumulation" ? "ok" : f.flow === "distribution" ? "bad" : f.flow === "mixed" ? "warn" : "na";
+  const flowZh = { accumulation: "净加仓（吸筹）", distribution: "净减仓（派发）", mixed: "增减分化", stable: "基本稳定" }[f.flow] || "—";
+  return `
+    <div class="dim" style="grid-column:1/-1;border-left:3px solid var(--${cls === "bad" ? "red" : cls === "ok" ? "green" : cls === "warn" ? "amber" : "border"})">
+      <span class="dim-k">机构持仓流向（13F 派生 · 聪明钱）</span>
+      <span class="dim-v"><span class="ev ${cls}">${escapeHtml(flowZh)}</span> <span class="ev na">机构持股 ${escapeHtml(f.institutions_pct_display || "n/a")}</span> <span class="ev na">加仓 ${escapeHtml(String(f.accumulators ?? 0))} / 减仓 ${escapeHtml(String(f.reducers ?? 0))}</span></span>
+      <span class="dim-v">${escapeHtml(f.summary_zh || "")}</span>
+    </div>
+  `;
 }
 
 function renderSqueezeDim(row) {
@@ -516,7 +574,7 @@ function renderOppRow(row) {
   const tickers = candidateTickers(row);
   return `
     <tr class="opp-row ${open ? "open" : ""}" data-key="${escapeHtml(key)}">
-      <td><span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span>${qualityChip(row)}${squeezeChip(row)}</td>
+      <td><span class="act act-${escapeHtml(action)}">${escapeHtml(actionLabelZh(action))}</span>${qualityChip(row)}${squeezeChip(row)}${flowChip(row)}${pdfChip(row)}</td>
       <td class="col-ticker">${escapeHtml(tickers.join(", ") || "—")}</td>
       <td class="col-name col-hide-md">${escapeHtml(row.company_name || "Unknown")}</td>
       <td class="col-num">${Number(row.score || 0).toFixed(1)}</td>
@@ -558,7 +616,7 @@ function renderDetail(row) {
       <div class="detail-decision">${escapeHtml(row.decision || "")}</div>
       ${row.analyst_take ? `<div class="detail-take">${escapeHtml(row.analyst_take)}</div>` : ""}
       <div class="row-meta"><span class="pill">证据层 ${escapeHtml(row.evidence_tier || "n/a")}</span><span class="pill">置信 ${fmtConf(row.confidence)}</span>${terms}</div>
-      ${dimCards || renderQualityDim(row) || renderSqueezeDim(row) ? `<div class="detail-grid">${renderSqueezeDim(row)}${renderQualityDim(row)}${dimCards}</div>` : ""}
+      ${dimCards || renderQualityDim(row) || renderSqueezeDim(row) || renderFlowDim(row) || renderPdfDim(row) ? `<div class="detail-grid">${renderFlowDim(row)}${renderSqueezeDim(row)}${renderQualityDim(row)}${renderPdfDim(row)}${dimCards}</div>` : ""}
       ${missing ? `<div><span class="dim-k">还缺</span><div class="missing-list" style="margin-top:6px">${missing}</div></div>` : ""}
       ${renderTechnologyIntel(row)}
       ${renderEarningsAnalysis(row)}
@@ -616,10 +674,10 @@ function renderWatchlistItem(row) {
           <span class="band ${Number(row.conviction || 0) >= 4 ? "hard" : "watch"}">信念 ${escapeHtml(row.conviction || 0)}/5</span>
           <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(row.company_name || "Unknown")}</a>
           <span class="pill">${escapeHtml(candidateTickers(row).join(", ") || "ticker待确认")}</span>
-          ${qualityChip(row)}${squeezeChip(row)}
+          ${qualityChip(row)}${squeezeChip(row)}${flowChip(row)}${pdfChip(row)}
         </div>
         <div class="terms">${escapeHtml(row.decision_zh || "")}</div>
-        ${renderQualityDim(row) || renderSqueezeDim(row) ? `<div class="detail-grid">${renderSqueezeDim(row)}${renderQualityDim(row)}</div>` : ""}
+        ${renderQualityDim(row) || renderSqueezeDim(row) || renderFlowDim(row) || renderPdfDim(row) ? `<div class="detail-grid">${renderFlowDim(row)}${renderSqueezeDim(row)}${renderQualityDim(row)}${renderPdfDim(row)}</div>` : ""}
         <div class="row-meta">${evidenceChips(row)}</div>
         ${renderTechnologyIntel(row)}
         ${renderEarningsAnalysis(row)}
@@ -1220,8 +1278,7 @@ async function loadInitialState() {
 
   // Paint immediately with stored signals, then upgrade once the (sometimes
   // slow, network-backed) brief resolves, so first paint is never blank.
-  elements.scanProgress.hidden = Boolean(signalsPayload.last_scan?.completed_at);
-  if (!signalsPayload.last_scan?.completed_at) elements.progressText.textContent = "等待第一次自动分析";
+  updateScanProgress(signalsPayload.last_scan);
   showErrors([]);
   elements.statusLine.textContent = `已加载 ${state.candidates.length} 候选，正在生成简报…`;
   setView(state.view);
@@ -1240,6 +1297,7 @@ async function refreshDashboard() {
     state.articles = payload.last_scan?.articles || [];
     state.sourceCounts = payload.last_scan?.source_counts || {};
     state.stale = false;
+    updateScanProgress(payload.last_scan);
     await refreshBrief();
     elements.statusLine.textContent = `已加载 ${reportRows().length} 个机会 · ${state.candidates.length} 候选`;
     showErrors([]);

@@ -349,6 +349,10 @@ def _dynamic_watchlist_items(
             row.get("quality_screen"),
             candidate.get("quality_screen"),
         )
+        row["institutional_flow"] = _merge_institutional_flow(
+            row.get("institutional_flow"),
+            candidate.get("institutional_flow"),
+        )
         if _article_time(article) >= _article_time(row.get("latest_article", {})):
             row["latest_article"] = article
 
@@ -362,6 +366,13 @@ def _dynamic_watchlist_items(
             str(_expectation_check(row).get("status") or ""),
             str(_options_flow(row).get("status") or ""),
         )
+        # Smart-money flow nudges conviction: institutional accumulation adds,
+        # distribution (利好背离) subtracts.
+        flow = str(_institutional_flow(row).get("flow") or "")
+        if flow == "accumulation":
+            conviction = min(conviction + 1, 5)
+        elif flow == "distribution":
+            conviction = max(conviction - 1, 0)
         # A failed financial health check overrides conviction entirely.
         if _quality_screen(row).get("veto"):
             conviction = 0
@@ -496,6 +507,11 @@ def _expectation_check(candidate: dict[str, object]) -> dict[str, object]:
 
 def _quality_screen(candidate: dict[str, object]) -> dict[str, object]:
     value = candidate.get("quality_screen")
+    return value if isinstance(value, dict) else {}
+
+
+def _institutional_flow(candidate: dict[str, object]) -> dict[str, object]:
+    value = candidate.get("institutional_flow")
     return value if isinstance(value, dict) else {}
 
 
@@ -916,6 +932,18 @@ def _merge_options_flow(existing: object, new_value: object) -> dict[str, object
         "no_flow_evidence": 0,
     }
     return incoming if rank.get(str(incoming.get("status") or ""), -1) > rank.get(str(current.get("status") or ""), -1) else current
+
+
+def _merge_institutional_flow(existing: object, new_value: object) -> dict[str, object]:
+    current = existing if isinstance(existing, dict) else {}
+    incoming = new_value if isinstance(new_value, dict) else {}
+    if not current:
+        return incoming
+    if not incoming:
+        return current
+    # Prefer a reading that actually resolved over an unavailable one.
+    rank = {"ok": 2, "no_data": 1, "unavailable": 0, "no_ticker": 0}
+    return incoming if rank.get(str(incoming.get("status")), 0) > rank.get(str(current.get("status")), 0) else current
 
 
 def _merge_quality_screen(existing: object, new_value: object) -> dict[str, object]:

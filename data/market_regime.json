@@ -3,7 +3,7 @@
   "regime": "risk_on",
   "score": 5,
   "summary": "宏观环境支持成长股和高 beta 标的。宏观分数=5；核心数据连接=5/5。主因：标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善。 来源错误数：1。",
-  "generated_at": "2026-05-31T08:24:21.315594+00:00",
+  "generated_at": "2026-06-01T05:03:49.759996+00:00",
   "drivers": [
     "标普 500 ETF 近 20 个观察日上涨 5.3%，风险偏好正在改善",
     "纳斯达克 100 ETF 近 20 个观察日上涨 10.6%，风险偏好正在改善",
@@ -281,14 +281,13 @@
     {
       "label": "U.S. Dollar Index",
       "category": "equity",
-      "value": 98.91,
+      "value": 99.042,
       "unit": "price",
-      "as_of": "2026-05-29",
+      "as_of": "2026-06-01",
       "source": "Yahoo U.S. Dollar Index Chart API",
       "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?range=2mo&interval=1d",
       "status": "ok",
       "sparkline": [
-        17.57,
         14.19,
         38.51,
         50.68,
@@ -317,7 +316,8 @@
         89.86,
         92.57,
         79.73,
-        72.3
+        72.3,
+        81.22
       ],
       "calculation": "5obs/20obs compare the latest valid observation with the value 5/20 valid observations earlier.",
       "change_5d_pct": -0.28,
@@ -489,6 +489,18 @@
   ],
   "events": [
     {
+      "source": "Trump Truth Social Mirror RSS",
+      "title": "Fake News CNN said today, routinely, that my Iran Nuclear Deal doesn’t talk about Nuclear, when actually it states, very clearly, that Iran will not have a Nuclear Weapon. It then goes on, in very strong and lengthy detail, to discuss various other aspects of Nuclear. In fact, that’s what most of the agreement is about. CNN, and so many others in the Fake News Media, is a Low Ratings disaster. Even with new ownership, it is unlikely to ever get better!!! President DJT",
+      "link": "https://www.trumpstruth.org/statuses/38972",
+      "published": "Sun, 31 May 2026 23:27:46 +0000",
+      "summary": "Fake News CNN said today, routinely, that my Iran Nuclear Deal doesn’t talk about Nuclear, when actually it states, very clearly, that Iran will not have a Nuclear Weapon. It then goes on, in very strong and lengthy detail, to discuss various other aspects of Nuclear. In fact, t...",
+      "policy_importance": 2,
+      "policy_topics": [
+        "nuclear_power"
+      ],
+      "market_read": "核电政策会影响数据中心电力、铀、设备和公用事业。"
+    },
+    {
       "source": "White House Presidential Actions RSS",
       "title": "Realigning United States Core Childhood Vaccine Recommendations with Best Practices from Peer, Developed Countries",
       "link": "https://www.whitehouse.gov/presidential-actions/2026/05/realigning-united-states-core-childhood-vaccine-recommendations-with-best-practices-from-peer-developed-countries/",
@@ -590,20 +602,10 @@
     },
     {
       "source": "Trump Truth Social Mirror RSS",
-      "title": "Dhillon wants judge who allegedly attended a Fani Willis event off Georgia election integrity case:",
-      "link": "https://www.trumpstruth.org/statuses/38956",
-      "published": "Sun, 31 May 2026 05:08:48 +0000",
-      "summary": "Dhillon wants judge who allegedly attended a Fani Willis event off Georgia election integrity case: https:// justthenews.com/government/cou rts-law/dhillon-moves-recuse-atlanta-judge-over-alleged-attendance-democratic-event",
-      "policy_importance": 1,
-      "policy_topics": [],
-      "market_read": "政策源事件：保留原文链接，等待主题匹配。"
-    },
-    {
-      "source": "Trump Truth Social Mirror RSS",
-      "title": "Cotton over chemicals: How Trump’s USDA is Making America’s Fabric Great Again:",
-      "link": "https://www.trumpstruth.org/statuses/38957",
-      "published": "Sun, 31 May 2026 05:08:16 +0000",
-      "summary": "Cotton over chemicals: How Trump’s USDA is Making America’s Fabric Great Again: https:// justthenews.com/government/whi te-house/cotton-over-chemicals-how-trumps-usda-making-americas-fabric-great-again",
+      "title": "Welcome home to Justo Betancourt, whose Daughter, Arianne, fought very hard to free her father from Alligator Alcatraz. Enjoy your Freedom together!!! President DONALD J. TRUMP",
+      "link": "https://www.trumpstruth.org/statuses/38973",
+      "published": "Sun, 31 May 2026 23:32:55 +0000",
+      "summary": "Welcome home to Justo Betancourt, whose Daughter, Arianne, fought very hard to free her father from Alligator Alcatraz. Enjoy your Freedom together!!! President DONALD J. TRUMP",
       "policy_importance": 1,
       "policy_topics": [],
       "market_read": "政策源事件：保留原文链接，等待主题匹配。"

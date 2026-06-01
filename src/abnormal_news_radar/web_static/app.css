@@ -422,6 +422,9 @@ table.opp tbody tr.opp-row.open { background: var(--surface-2); }
 .risk-veto { background: var(--red); color: #160b09; }
 .risk-warn { background: var(--amber-dim); color: #edc56e; border: 1px solid #6a5526; }
 .risk-squeeze { background: #d12f2f; color: #fff5e6; box-shadow: 0 0 0 0 rgba(209, 47, 47, 0.7); animation: squeeze-pulse 1.6s infinite; }
+.risk-accum { background: var(--green-dim); color: #8fe0b0; border: 1px solid #2c5740; }
+.risk-distrib { background: var(--red-dim); color: #f0a89c; border: 1px solid #6a352d; }
+.risk-pdf { background: var(--blue-dim); color: #9ccbf2; border: 1px solid #2c4f72; }
 
 @keyframes squeeze-pulse {
   0% { box-shadow: 0 0 0 0 rgba(209, 47, 47, 0.6); }

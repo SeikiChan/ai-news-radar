@@ -88,12 +88,14 @@ def fetch_bytes(
     headers: dict[str, str] | None = None,
     opener: object | None = None,
     sleep: object | None = None,
+    max_bytes: int = 0,
 ) -> bytes:
     """Fetch ``url`` with a shared User-Agent, date templating, and retries.
 
     Retries transient failures (timeouts, connection errors, and retryable HTTP
     statuses) with exponential backoff. ``opener``/``sleep`` are injectable for
-    deterministic tests.
+    deterministic tests. ``max_bytes`` (>0) caps the read so a runaway download
+    (e.g. a huge PDF) cannot exhaust memory.
     """
     resolved = expand_url_template(url)
     do_open = opener or urllib.request.urlopen
@@ -107,7 +109,7 @@ def fetch_bytes(
         try:
             request = urllib.request.Request(resolved, headers=request_headers)
             with do_open(request, timeout=timeout) as response:
-                return response.read()
+                return response.read(max_bytes) if max_bytes > 0 else response.read()
         except urllib.error.HTTPError as exc:
             last_exc = exc
             if exc.code not in RETRYABLE_STATUS or attempt == retries:

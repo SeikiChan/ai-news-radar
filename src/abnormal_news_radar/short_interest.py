@@ -19,15 +19,11 @@ never breaks the scan.
 
 from __future__ import annotations
 
-import http.cookiejar
 import json
-import urllib.parse
-import urllib.request
 
-from .net import user_agent
 from .scoring import HARD_BAND
-
-FETCH_TIMEOUT_SECONDS = 12
+from .yahoo import make_yahoo_fetcher, quote_summary_url
+from .yahoo import raw as _raw
 
 #: Short interest above this share of float is squeeze-prone.
 SQUEEZE_FLOAT_THRESHOLD = 0.15
@@ -46,7 +42,7 @@ def enrich_candidates_with_short_interest(
     tickers = _candidate_tickers(candidates)[:max_tickers]
     readings: dict[str, dict[str, object]] = {}
     if tickers:
-        fetch = fetcher or _make_yahoo_fetcher()
+        fetch = fetcher or make_yahoo_fetcher()
         for ticker in tickers:
             readings[ticker] = fetch_short_percent_of_float(ticker, fetch)
 
@@ -62,7 +58,7 @@ def fetch_short_percent_of_float(ticker: str, fetch: object) -> dict[str, object
     symbol = ticker.strip().upper()
     if not symbol:
         return {"status": "no_ticker"}
-    url = _quote_summary_url(symbol)
+    url = quote_summary_url(symbol, "defaultKeyStatistics")
     try:
         payload = json.loads(fetch(url))  # type: ignore[operator]
         result = (((payload.get("quoteSummary") or {}).get("result")) or [None])[0]
@@ -135,53 +131,6 @@ def _summary_zh(spf: float, score: float, potential: str, alert: bool) -> str:
     if potential == "elevated":
         return f"空头占流通盘 {pct}（偏高），有一定轧空弹性，关注催化剂。"
     return f"空头占流通盘 {pct}（低），轧空弹性有限。"
-
-
-# --------------------------------------------------------------------------- #
-# Yahoo cookie + crumb handshake (standard library only)
-# --------------------------------------------------------------------------- #
-def _quote_summary_url(symbol: str) -> str:
-    return (
-        f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(symbol)}"
-        "?modules=defaultKeyStatistics"
-    )
-
-
-def _make_yahoo_fetcher() -> object:
-    """Return ``fetch(url) -> text`` that performs the cookie+crumb handshake once
-    and appends the crumb to each quoteSummary request."""
-    jar = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-    state: dict[str, str | None] = {"crumb": None}
-
-    def _open(url: str, accept: str) -> str:
-        request = urllib.request.Request(url, headers={"User-Agent": user_agent(), "Accept": accept})
-        with opener.open(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-            return response.read().decode("utf-8", errors="replace")
-
-    def _ensure_crumb() -> str:
-        if state["crumb"]:
-            return str(state["crumb"])
-        try:
-            _open("https://fc.yahoo.com", "text/html")  # seeds the session cookie
-        except Exception:  # noqa: BLE001 - 404 is fine; the cookie is still set.
-            pass
-        crumb = _open("https://query2.finance.yahoo.com/v1/test/getcrumb", "text/plain").strip()
-        state["crumb"] = crumb
-        return crumb
-
-    def fetch(url: str) -> str:
-        crumb = _ensure_crumb()
-        separator = "&" if "?" in url else "?"
-        return _open(f"{url}{separator}crumb={urllib.parse.quote(crumb)}", "application/json")
-
-    return fetch
-
-
-def _raw(node: object) -> object:
-    if isinstance(node, dict):
-        return node.get("raw")
-    return node
 
 
 def _candidate_tickers(candidates: list[dict[str, object]]) -> list[str]:

@@ -19,6 +19,9 @@ keywords = ["finance", "news", "signals", "equity-research", "rss"]
 # market-hours scan scheduler depends on.
 dependencies = [
     "tzdata>=2024.1",
+    # Full-text parsing of public PDFs (arXiv papers, IR/SEC PDFs). Pure-Python,
+    # BSD-licensed, no native build step — keeps the install lightweight.
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]
