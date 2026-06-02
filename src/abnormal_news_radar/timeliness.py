@@ -3,6 +3,32 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
+#: Hard freshness cutoff. News older than this is dropped before scoring —
+#: anything past a year is either played-out hype or already-realized tech, and
+#: has no trading timeliness.
+MAX_FRESH_DAYS = 365
+
+
+def article_age_days(article: object, now: datetime | None = None) -> float | None:
+    """Age of an article in days from its published date, or None if undated."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    parsed = parse_datetime(str(getattr(article, "published", "") or ""))
+    if parsed is None:
+        return None
+    hours = _age_hours(parsed, now)
+    return None if hours is None else hours / 24.0
+
+
+def is_within_max_age(article: object, max_days: int = MAX_FRESH_DAYS, now: datetime | None = None) -> bool:
+    """True if the article is fresh enough to use. Undated items are kept (many
+    IR/HTML pages omit a date but are current); only items with a parsed date
+    older than ``max_days`` are dropped. Future-dated items are kept."""
+    age = article_age_days(article, now)
+    if age is None:
+        return True
+    return age <= max_days
+
 
 def article_timeliness(article: object, now: datetime | None = None) -> dict[str, object]:
     if now is None:

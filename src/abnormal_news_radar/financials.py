@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from urllib.request import Request, urlopen
 
 USER_AGENT = "AI-News-Radar/0.1 research-tool contact=local@example.com"
@@ -30,6 +30,16 @@ OPERATING_CASH_FLOW_CONCEPTS = (
     "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
 )
 
+#: Capital-allocation line items ("where the money goes"), from companyfacts.
+CAPITAL_ALLOCATION_CONCEPTS: dict[str, tuple[str, ...]] = {
+    "rd": ("ResearchAndDevelopmentExpense", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
+    "sga": ("SellingGeneralAndAdministrativeExpense", "GeneralAndAdministrativeExpense"),
+    "capex": ("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"),
+    "buyback": ("PaymentsForRepurchaseOfCommonStock",),
+    "dividends": ("PaymentsOfDividendsCommonStock", "PaymentsOfDividends"),
+    "acquisitions": ("PaymentsToAcquireBusinessesNetOfCashAcquired", "PaymentsToAcquireBusinessesAndInterestInAffiliates"),
+}
+
 
 def load_default_cik_map() -> dict[str, dict[str, object]]:
     """Public accessor for the SEC ticker->CIK map (used by on-demand lookups)."""
@@ -44,12 +54,13 @@ def fetch_recent_filings(
     fetcher: object | None = None,
     forms: tuple[str, ...] = FILING_FORMS,
     limit: int = 10,
+    max_age_days: int = 365,
 ) -> list[dict[str, object]]:
     """Recent SEC EDGAR filings for a CIK with direct document links.
 
     Returns the actual 10-Q / 10-K / 8-K documents from the SEC submissions API
-    — the authoritative filing for any US registrant, always available. Empty
-    list on failure.
+    — the authoritative filing for any US registrant — filed within the last
+    ``max_age_days`` (stale filings are dropped). Empty list on failure.
     """
     fetch = fetcher or _fetch_text
     try:
@@ -63,10 +74,14 @@ def fetch_recent_filings(
     accessions = recent.get("accessionNumber") or []
     documents = recent.get("primaryDocument") or []
     descriptions = recent.get("primaryDocDescription") or []
+    cutoff = (date.today() - timedelta(days=max_age_days)).isoformat()
 
     out: list[dict[str, object]] = []
     for index, form in enumerate(forms_list):
         if forms and form not in forms:
+            continue
+        filed_date = filed[index] if index < len(filed) else ""
+        if filed_date and filed_date < cutoff:
             continue
         accession = accessions[index] if index < len(accessions) else ""
         document = documents[index] if index < len(documents) else ""
@@ -142,6 +157,10 @@ def fetch_financial_snapshot(
         gross_margin_trend = _gross_margin_trend(facts)
         cash_musd = _latest_instant_musd(facts, CASH_CONCEPTS)
         quarterly_ocf_musd = _latest_quarterly_musd(facts, OPERATING_CASH_FLOW_CONCEPTS)
+        capital_allocation = {
+            key: _ttm_or_annual_musd(facts, concepts)
+            for key, concepts in CAPITAL_ALLOCATION_CONCEPTS.items()
+        }
     except Exception as exc:  # noqa: BLE001 - one ticker must not fail the scan.
         return _snapshot_unavailable(symbol, str(exc), source_url, cik=cik, company_name=str(company.get("name") or ""))
 
@@ -186,6 +205,7 @@ def fetch_financial_snapshot(
         "gross_margin_trend_pct": gross_margin_trend,
         "cash_musd": cash_musd,
         "quarterly_operating_cash_flow_musd": quarterly_ocf_musd,
+        "capital_allocation_musd": capital_allocation,
         "source": "SEC companyfacts",
         "source_url": source_url,
         "missing_fields": missing_fields,
@@ -303,10 +323,16 @@ def _quarterly_series(facts: dict[str, object], concepts: tuple[str, ...]) -> li
 
 
 def _ttm_revenue_musd(facts: dict[str, object]) -> float | None:
-    series = _quarterly_series(facts, REVENUE_CONCEPTS)
+    return _ttm_or_annual_musd(facts, REVENUE_CONCEPTS)
+
+
+def _ttm_or_annual_musd(facts: dict[str, object], concepts: tuple[str, ...]) -> float | None:
+    """Trailing-twelve-month value (sum of last 4 quarters) when available, else
+    the latest annual figure. Used for revenue and capital-allocation items."""
+    series = _quarterly_series(facts, concepts)
     if len(series) >= 4:
         return _usd_to_millions(sum(float(row["value"]) for row in series[-4:]))
-    annual = _latest_annual_fact(facts, REVENUE_CONCEPTS)
+    annual = _latest_annual_fact(facts, concepts)
     return _usd_to_millions(float(annual["value"])) if annual else None
 
 

@@ -151,6 +151,11 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
             ticker = query.get("ticker", [""])[0]
             self._send_json(_financials_payload(ticker))
             return
+        if route.path == "/api/holders":
+            query = parse_qs(route.query)
+            ticker = query.get("ticker", [""])[0]
+            self._send_json(_holders_payload(ticker))
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_HEAD(self) -> None:  # noqa: N802 - stdlib handler API.
@@ -410,6 +415,7 @@ EARNINGS_MONTH_LOCK = threading.Lock()
 FINANCIALS_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 FINANCIALS_CACHE_TTL_SECONDS = 6 * 3600
 CIK_MAP_CACHE: dict[str, dict[str, object]] = {}
+NAME_INDEX_CACHE: dict[str, dict[str, str]] = {}
 FINANCIALS_LOCK = threading.Lock()
 
 
@@ -434,6 +440,7 @@ def _financials_payload(ticker: str) -> dict[str, object]:
         cached = FINANCIALS_CACHE.get(symbol)
         if cached is not None and _time.time() - cached[0] < FINANCIALS_CACHE_TTL_SECONDS:
             return {"ok": True, "ticker": symbol, **cached[1]}
+        from .filing_teardown import build_name_index, teardown_filing
         from .financials import fetch_financial_snapshot, fetch_recent_filings, load_default_cik_map
 
         try:
@@ -442,11 +449,65 @@ def _financials_payload(ticker: str) -> dict[str, object]:
             snapshot = fetch_financial_snapshot(symbol, cik_map=CIK_MAP_CACHE)
             company = CIK_MAP_CACHE.get(symbol)
             filings = fetch_recent_filings(int(company["cik"])) if company else []
+            teardown = {"status": "no_filing"}
+            report = next((f for f in filings if f.get("form") in {"10-Q", "10-K", "20-F", "40-F"}), None)
+            if report and report.get("doc_url"):
+                if not NAME_INDEX_CACHE:
+                    NAME_INDEX_CACHE.update(build_name_index(CIK_MAP_CACHE, _watchlist_for_index()))
+                teardown = teardown_filing(str(report["doc_url"]), NAME_INDEX_CACHE, self_ticker=symbol)
+                teardown["form"] = report.get("form")
+                teardown["filed"] = report.get("filed")
         except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
-            return {"ok": True, "ticker": symbol, "snapshot": {"status": "unavailable", "reason": str(exc)[:160]}, "filings": []}
-        result = {"snapshot": snapshot, "filings": filings}
+            return {"ok": True, "ticker": symbol, "snapshot": {"status": "unavailable", "reason": str(exc)[:160]}, "filings": [], "teardown": {"status": "unavailable"}}
+        result = {"snapshot": snapshot, "filings": filings, "teardown": teardown}
         FINANCIALS_CACHE[symbol] = (_time.time(), result)
         return {"ok": True, "ticker": symbol, **result}
+
+
+HOLDERS_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+HOLDERS_CACHE_TTL_SECONDS = 24 * 3600
+HOLDERS_LOCK = threading.Lock()
+
+
+def _holders_payload(ticker: str) -> dict[str, object]:
+    """Reverse-13F: institutions that hold this ticker, from SEC filings.
+
+    Heavy (full-text search + multiple information tables), so it is a separate
+    on-demand endpoint with a long cache — 13F data only changes quarterly.
+    """
+    import time as _time
+
+    symbol = str(ticker or "").upper().strip()
+    if not symbol:
+        return {"ok": False, "error": "missing ticker"}
+    cached = HOLDERS_CACHE.get(symbol)
+    if cached is not None and _time.time() - cached[0] < HOLDERS_CACHE_TTL_SECONDS:
+        return {"ok": True, "ticker": symbol, **cached[1]}
+
+    with HOLDERS_LOCK:
+        cached = HOLDERS_CACHE.get(symbol)
+        if cached is not None and _time.time() - cached[0] < HOLDERS_CACHE_TTL_SECONDS:
+            return {"ok": True, "ticker": symbol, **cached[1]}
+        from .financials import load_default_cik_map
+        from .reverse_13f import find_institutional_holders
+
+        try:
+            if not CIK_MAP_CACHE:
+                CIK_MAP_CACHE.update(load_default_cik_map())
+            company = CIK_MAP_CACHE.get(symbol)
+            issuer = str(company.get("name") or "") if company else ""
+            result = find_institutional_holders(issuer) if issuer else {"status": "no_issuer", "holders": []}
+        except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
+            return {"ok": True, "ticker": symbol, "status": "unavailable", "holders": [], "reason": str(exc)[:160]}
+        HOLDERS_CACHE[symbol] = (_time.time(), result)
+        return {"ok": True, "ticker": symbol, **result}
+
+
+def _watchlist_for_index() -> list[object]:
+    try:
+        return list(load_watchlist(PROJECT_ROOT / "config" / "watchlist.json"))
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _earnings_month_payload(month: str) -> dict[str, object]:

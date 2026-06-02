@@ -15,6 +15,7 @@ from urllib.parse import unquote, urljoin, urlparse
 
 from .model import Article, Source
 from .net import expand_url_template, user_agent
+from .timeliness import is_within_max_age
 
 TAG_RE = re.compile(r"<[^>]+>")
 
@@ -64,12 +65,15 @@ def fetch_feed(source: Source, timeout: int = 20) -> list[Article]:
             return []
 
     if source.type == "html":
-        return list(_parse_html_links(raw.decode("utf-8", errors="replace"), source))
-
-    root = ET.fromstring(raw)
-    if root.tag.endswith("rss"):
-        return list(_parse_rss(root, source))
-    return list(_parse_atom(root, source))
+        articles = list(_parse_html_links(raw.decode("utf-8", errors="replace"), source))
+    else:
+        root = ET.fromstring(raw)
+        if root.tag.endswith("rss"):
+            articles = list(_parse_rss(root, source))
+        else:
+            articles = list(_parse_atom(root, source))
+    # Hard freshness cutoff: drop anything older than a year (kept undated items).
+    return [article for article in articles if is_within_max_age(article)]
 
 
 def _text(node: ET.Element | None) -> str:

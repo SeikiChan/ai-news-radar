@@ -13,6 +13,7 @@ const state = {
   stale: false,
   calendar: { month: currentMonthIso(), items: [], summary: "", loaded: false, loading: false },
   financials: {},
+  holders: {},
 };
 
 function currentMonthIso() {
@@ -842,9 +843,120 @@ function renderSelectedEarningsDetail(item, detail) {
   return `
     <div class="content-grid">
       ${renderFinancialTiles(finState, item)}
+      ${renderCapitalAllocation(finState)}
+      ${renderTeardown(finState)}
+      ${renderHolders(tickerOf(item))}
       ${renderFilings(finState)}
       ${detail ? renderEarningsCard(detail) : renderNoReleaseCard(item)}
     </div>
+  `;
+}
+
+function renderHolders(ticker) {
+  const h = state.holders[ticker];
+  let body;
+  if (h === undefined) {
+    body = `<button class="small-action" type="button" data-holders="${escapeHtml(ticker)}">🏛️ 查看 13F 机构持仓（联网检索 SEC，较慢）</button>`;
+  } else if (h === "loading") {
+    body = `<div class="terms">正在检索 SEC 13F 申报…（全文搜索 + 解析信息表，约 10–30 秒）</div>`;
+  } else if (!h || h.status !== "ok" || !(h.holders || []).length) {
+    body = `<div class="terms">${escapeHtml((h && h.summary_zh) || "近一季 13F 申报中未检索到机构持仓（或 SEC 限流）。")}</div>`;
+  } else {
+    const rows = (h.holders || []).slice(0, 14).map((m) => `
+      <div class="holder-row${m.notable ? " holder-notable" : ""}">
+        <span class="holder-val">${escapeHtml(fmtUsd(m.value_usd))}</span>
+        <span class="holder-name">${m.notable ? "⭐ " : ""}${escapeHtml(m.manager || "")}</span>
+        <span class="holder-sh">${escapeHtml(fmtShares(m.shares))} 股 · ${escapeHtml(m.filed || "")}</span>
+      </div>
+    `).join("");
+    body = `<div class="holder-list">${rows}</div><div class="terms">${escapeHtml(h.summary_zh || "")}</div>`;
+  }
+  return `
+    <article class="row">
+      <div class="row-title">🏛️ 谁在持有 · 13F 机构持仓（SEC 实际申报，反向检索）</div>
+      ${body}
+    </article>
+  `;
+}
+
+async function loadHolders(ticker) {
+  if (!ticker || state.holders[ticker] === "loading") return;
+  state.holders[ticker] = "loading";
+  if (state.view === "earnings") renderEarnings();
+  try {
+    const response = await fetch(`/api/holders?ticker=${encodeURIComponent(ticker)}`);
+    const payload = await response.json();
+    state.holders[ticker] = payload.ok ? payload : null;
+  } catch (error) {
+    state.holders[ticker] = null;
+  }
+  if (state.view === "earnings") renderEarnings();
+}
+
+function fmtUsd(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "n/a";
+  if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+  return `$${v.toFixed(0)}`;
+}
+
+function fmtShares(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "n/a";
+  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+  return `${v}`;
+}
+
+function renderCapitalAllocation(finState) {
+  const snap = finState && typeof finState === "object" ? finState.snapshot : null;
+  const cap = snap && typeof snap.capital_allocation_musd === "object" ? snap.capital_allocation_musd : null;
+  if (!cap) return "";
+  const labels = { rd: "研发投入", capex: "资本开支", sga: "销售/管理费用", buyback: "股票回购", dividends: "现金分红", acquisitions: "并购支出" };
+  const tiles = Object.keys(labels)
+    .filter((k) => cap[k] != null)
+    .map((k) => statTile(labels[k], formatMusd(cap[k]), k === "acquisitions" && cap[k] ? "accent" : ""))
+    .join("");
+  if (!tiles) return "";
+  return `
+    <article class="row">
+      <div class="row-title">钱花在哪里（TTM · SEC 结构化）</div>
+      <div class="stat-tiles">${tiles}</div>
+      <div class="terms">来源：SEC companyfacts 现金流量表/利润表标签（研发、资本开支、回购、分红、并购）。</div>
+    </article>
+  `;
+}
+
+function renderTeardown(finState) {
+  const t = finState && typeof finState === "object" ? finState.teardown : null;
+  if (!t || t.status !== "ok") return "";
+  const flows = (t.money_flows || []).slice(0, 8).map((m) => {
+    const target = m.target_ticker ? `<span class="flow-target">${escapeHtml(m.target_ticker)}</span> ${escapeHtml(m.target_name || "")}` : "";
+    return `<div class="flow-row" title="${escapeHtml(m.context || "")}">
+        <span class="flow-amt">${escapeHtml(formatMusd(m.amount_musd))}</span>
+        <span class="flow-use">${escapeHtml(m.purpose_zh || "")}</span>
+        <span class="flow-to">${target}</span>
+      </div>`;
+  }).join("");
+  const companies = (t.named_companies || []).map((c) => `
+    <div class="named-co" title="${escapeHtml(c.context || "")}">
+      <span class="named-tk">${escapeHtml(c.ticker)}</span>
+      <span class="named-nm">${escapeHtml(c.name)}</span>
+      <span class="named-ctx">原文：${escapeHtml(c.context || "")}</span>
+    </div>
+  `).join("");
+  const conc = (t.customer_concentration || []).slice(0, 4).map((c) =>
+    `<div class="terms">• ${escapeHtml(c.context || "")}</div>`
+  ).join("");
+  return `
+    <article class="row">
+      <div class="row-title">财报全文拆解 <span class="pill">${escapeHtml(t.form || "")} ${escapeHtml(t.filed || "")}</span></div>
+      <div class="terms">来自 SEC 财报正文的规则化抽取：<strong>金额与用途较可靠</strong>；公司与集中度为<strong>线索</strong>，关系请对照原文判断（悬停看英文原文）。</div>
+      ${flows ? `<div class="teardown-h">💰 大额资金去向（金额 → 用途 → 对象公司）</div><div class="flow-list">${flows}</div>` : ""}
+      ${companies ? `<div class="teardown-h">🏢 正文点名、已对应美股代码的公司（线索）</div><div class="named-list">${companies}</div>` : ""}
+      ${conc ? `<div class="teardown-h">📊 客户集中度（仅在正文明确披露时）</div>${conc}` : ""}
+    </article>
   `;
 }
 
@@ -929,7 +1041,7 @@ async function loadFinancials(ticker) {
   try {
     const response = await fetch(`/api/financials?ticker=${encodeURIComponent(ticker)}`);
     const payload = await response.json();
-    state.financials[ticker] = payload.ok ? { snapshot: payload.snapshot, filings: payload.filings || [] } : null;
+    state.financials[ticker] = payload.ok ? { snapshot: payload.snapshot, filings: payload.filings || [], teardown: payload.teardown || {} } : null;
   } catch (error) {
     state.financials[ticker] = null;
   }
@@ -944,6 +1056,7 @@ function earningsDetailsByTicker(calendarItems) {
     // Only a genuinely parsed earnings release counts — not any article that
     // merely mentions the ticker (that caused e.g. NVDA -> an IREN story).
     if (analysis.status !== "earnings_release_detected") return;
+    if (isStale(articleOf(candidate).published)) return; // drop >1y-old releases
     const title = String(articleOf(candidate).title || "");
     candidateTickers(candidate).forEach((ticker) => {
       if (!nameByTicker.has(ticker)) return;
@@ -955,6 +1068,13 @@ function earningsDetailsByTicker(calendarItems) {
     });
   });
   return details;
+}
+
+function isStale(published, maxDays = 365) {
+  if (!published) return false; // undated -> keep
+  const t = Date.parse(published);
+  if (Number.isNaN(t)) return false;
+  return (Date.now() - t) / 86400000 > maxDays;
 }
 
 function isEarningsSubject(title, companyName, calendarName) {
@@ -999,6 +1119,9 @@ function bindEarningsButtons() {
       window.history.replaceState(null, "", `#earnings:${state.selectedEarningsTicker}`);
       renderEarnings();
     });
+  });
+  document.querySelectorAll("[data-holders]").forEach((button) => {
+    button.addEventListener("click", () => loadHolders(button.dataset.holders));
   });
 }
 
