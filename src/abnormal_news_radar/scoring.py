@@ -112,6 +112,72 @@ TERM_WEIGHTS: dict[str, int] = {
     "chips": 6,
     "artificial intelligence": 2,
     " ai ": 2,
+    # --- AI full-chain deepening (upstream materials/EDA/packaging → mid memory/
+    #     interconnect → downstream compute/agents). Thematic boosters, not
+    #     stand-alone triggers; hard-evidence terms above still carry the score.
+    "advanced packaging": 10,
+    "cowos": 12,
+    "chiplet": 10,
+    "chiplets": 10,
+    "glass substrate": 12,
+    "hybrid bonding": 12,
+    "high bandwidth memory": 8,
+    "ai inference": 8,
+    "ai training": 8,
+    "training cluster": 10,
+    "gpu cluster": 10,
+    "agentic ai": 8,
+    "frontier model": 8,
+    "optical transceiver": 8,
+    "linear pluggable optics": 10,
+    "neocloud": 10,
+    # --- Robotics full-chain (sensing → actuation → platform → application).
+    "humanoid robot": 14,
+    "humanoid robots": 14,
+    "humanoid": 10,
+    "embodied ai": 12,
+    "harmonic reducer": 12,
+    "harmonic drive": 12,
+    "planetary roller screw": 12,
+    "robot actuator": 12,
+    "servo motor": 8,
+    "force-torque sensor": 10,
+    "tactile sensor": 10,
+    "machine vision": 8,
+    "lidar": 8,
+    "autonomous mobile robot": 10,
+    "warehouse automation": 10,
+    "industrial robot": 8,
+    "industrial robots": 8,
+    "collaborative robot": 8,
+    "cobot": 8,
+    "robotic arm": 8,
+    "factory automation": 8,
+    "autonomous driving": 8,
+    "full self-driving": 10,
+    # --- Energy transition (storage/battery → nuclear → renewables → grid).
+    #     An off-take agreement is a binding multi-year purchase = hard evidence.
+    "offtake agreement": 18,
+    "offtake": 12,
+    "power purchase agreement": 14,
+    "solid-state battery": 14,
+    "solid state battery": 14,
+    "gigafactory": 14,
+    "battery energy storage": 12,
+    "grid storage": 10,
+    "small modular reactor": 14,
+    "advanced nuclear": 12,
+    "nuclear reactor": 10,
+    "electrolyzer": 12,
+    "green hydrogen": 10,
+    "photovoltaic": 8,
+    "solar module": 8,
+    "wind turbine": 8,
+    "grid interconnection": 10,
+    "cathode": 8,
+    "anode": 8,
+    "lithium": 6,
+    "ev charging": 6,
 }
 
 PENALTY_WEIGHTS: dict[str, int] = {
@@ -262,6 +328,9 @@ _AMBIGUOUS_WORD_ALIASES: frozenset[str] = frozenset({
     "for", "go", "high", "id", "if", "in", "is", "it", "key", "low", "new",
     "next", "no", "now", "of", "ok", "on", "one", "open", "or", "real", "so",
     "the", "to", "two", "up", "us", "we", "arm", "cat", "hon", "ten",
+    # Short symbols that collide with common words/abbreviations: only count
+    # inside an explicit ticker context.
+    "emr", "nee", "path", "pwr", "smr",
 })
 
 #: Exchange prefixes that unambiguously introduce a ticker symbol.
@@ -430,12 +499,6 @@ def score_article(article: Article, watchlist: list[Company]) -> Signal | None:
         confidence=float(profile["confidence"]),
         evidence_tier=str(profile["evidence_tier"]),
     )
-
-
-def score_evidence(article: Article) -> tuple[int, tuple[str, ...]]:
-    """Backward-compatible (raw_score, matched_terms) view of the evidence."""
-    profile = analyze_evidence(article)
-    return int(profile["raw_score"]), tuple(profile["matched_terms"])
 
 
 def _match_companies(text: str, watchlist: list[Company]) -> list[Company]:

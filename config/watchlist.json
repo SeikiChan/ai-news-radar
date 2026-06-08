@@ -311,6 +311,159 @@
       "name": "Honeywell",
       "aliases": ["Honeywell", "HON", "industrial automation", "aerospace systems"],
       "themes": ["industrial_ai", "aerospace", "automation"]
+    },
+
+    {
+      "ticker": "SNPS",
+      "name": "Synopsys",
+      "aliases": ["Synopsys", "SNPS"],
+      "themes": ["eda", "ai_supply_chain", "semiconductors"]
+    },
+    {
+      "ticker": "CDNS",
+      "name": "Cadence Design Systems",
+      "aliases": ["Cadence Design Systems", "Cadence", "CDNS"],
+      "themes": ["eda", "ai_supply_chain", "semiconductors"]
+    },
+    {
+      "ticker": "ALAB",
+      "name": "Astera Labs",
+      "aliases": ["Astera Labs", "ALAB", "Aries", "Scorpio", "Taurus"],
+      "themes": ["ai_interconnect", "ai_datacenter", "custom_silicon"]
+    },
+    {
+      "ticker": "CRDO",
+      "name": "Credo Technology",
+      "aliases": ["Credo Technology", "Credo", "CRDO"],
+      "themes": ["ai_interconnect", "networking", "ai_datacenter"]
+    },
+    {
+      "ticker": "CRWV",
+      "name": "CoreWeave",
+      "aliases": ["CoreWeave", "CRWV"],
+      "themes": ["ai_cloud", "neocloud", "ai_datacenter"]
+    },
+    {
+      "ticker": "NBIS",
+      "name": "Nebius Group",
+      "aliases": ["Nebius Group", "Nebius", "NBIS"],
+      "themes": ["ai_cloud", "neocloud", "ai_datacenter"]
+    },
+
+    {
+      "ticker": "TSLA",
+      "name": "Tesla",
+      "aliases": ["Tesla", "TSLA", "Optimus", "Dojo", "Megapack"],
+      "themes": ["humanoid_robotics", "autonomy", "ev", "energy_storage"]
+    },
+    {
+      "ticker": "SYM",
+      "name": "Symbotic",
+      "aliases": ["Symbotic", "SYM"],
+      "themes": ["robotics", "warehouse_automation", "automation"]
+    },
+    {
+      "ticker": "CGNX",
+      "name": "Cognex",
+      "aliases": ["Cognex", "CGNX"],
+      "themes": ["robotics", "machine_vision", "automation"]
+    },
+    {
+      "ticker": "ZBRA",
+      "name": "Zebra Technologies",
+      "aliases": ["Zebra Technologies", "ZBRA"],
+      "themes": ["robotics", "machine_vision", "automation"]
+    },
+    {
+      "ticker": "OUST",
+      "name": "Ouster",
+      "aliases": ["Ouster", "OUST"],
+      "themes": ["robotics", "lidar", "autonomy"]
+    },
+    {
+      "ticker": "PATH",
+      "name": "UiPath",
+      "aliases": ["UiPath", "PATH"],
+      "themes": ["automation", "ai_software", "robotics"]
+    },
+    {
+      "ticker": "EMR",
+      "name": "Emerson Electric",
+      "aliases": ["Emerson Electric", "Emerson", "EMR"],
+      "themes": ["industrial_ai", "automation"]
+    },
+    {
+      "ticker": "SERV",
+      "name": "Serve Robotics",
+      "aliases": ["Serve Robotics", "SERV"],
+      "themes": ["robotics", "autonomy", "last_mile"]
+    },
+
+    {
+      "ticker": "VST",
+      "name": "Vistra",
+      "aliases": ["Vistra", "VST"],
+      "themes": ["ai_power", "nuclear_power", "energy_infrastructure"]
+    },
+    {
+      "ticker": "NEE",
+      "name": "NextEra Energy",
+      "aliases": ["NextEra Energy", "NextEra", "NEE"],
+      "themes": ["renewables", "grid", "energy_infrastructure"]
+    },
+    {
+      "ticker": "FSLR",
+      "name": "First Solar",
+      "aliases": ["First Solar", "FSLR"],
+      "themes": ["solar", "renewables", "energy_transition"]
+    },
+    {
+      "ticker": "ENPH",
+      "name": "Enphase Energy",
+      "aliases": ["Enphase Energy", "Enphase", "ENPH", "microinverter"],
+      "themes": ["solar", "energy_storage", "renewables"]
+    },
+    {
+      "ticker": "FLNC",
+      "name": "Fluence Energy",
+      "aliases": ["Fluence Energy", "Fluence", "FLNC"],
+      "themes": ["energy_storage", "grid", "renewables"]
+    },
+    {
+      "ticker": "QS",
+      "name": "QuantumScape",
+      "aliases": ["QuantumScape", "QS"],
+      "themes": ["battery", "solid_state_battery", "ev"]
+    },
+    {
+      "ticker": "SMR",
+      "name": "NuScale Power",
+      "aliases": ["NuScale Power", "NuScale", "SMR"],
+      "themes": ["nuclear_power", "smr", "energy_transition"]
+    },
+    {
+      "ticker": "OKLO",
+      "name": "Oklo",
+      "aliases": ["Oklo", "OKLO", "Aurora powerhouse"],
+      "themes": ["nuclear_power", "advanced_nuclear", "ai_power"]
+    },
+    {
+      "ticker": "BWXT",
+      "name": "BWX Technologies",
+      "aliases": ["BWX Technologies", "BWXT"],
+      "themes": ["nuclear_power", "defense", "energy_infrastructure"]
+    },
+    {
+      "ticker": "ALB",
+      "name": "Albemarle",
+      "aliases": ["Albemarle", "ALB"],
+      "themes": ["lithium", "battery_materials", "critical_minerals"]
+    },
+    {
+      "ticker": "PWR",
+      "name": "Quanta Services",
+      "aliases": ["Quanta Services", "Quanta", "PWR"],
+      "themes": ["grid", "electrification", "energy_infrastructure"]
     }
   ]
 }

@@ -34,7 +34,7 @@
       "type": "html",
       "url": "https://www.newsfilecorp.com/search",
       "trust": 0.72,
-      "include_patterns": ["newsfilecorp.com/release|announces|receives|signs|reports|closes|order|agreement|contract|drilling|semiconductor|ai|data center|defense"],
+      "include_patterns": ["newsfilecorp.com/release|announces|receives|signs|reports|closes|order|agreement|contract|drilling|semiconductor|ai|data center|defense|robot|humanoid|automation|battery|energy storage|solar|nuclear|reactor|lithium|grid|hydrogen|offtake|charging"],
       "exclude_patterns": ["login", "subscribe", "privacy", "terms"]
     },
     {
@@ -43,7 +43,7 @@
       "type": "html",
       "url": "https://newsroom.accessnewswire.com/",
       "trust": 0.72,
-      "include_patterns": ["accessnewswire.com/newsroom|announces|receives|signs|reports|order|agreement|contract|customer|ai|data center|defense|semiconductor"],
+      "include_patterns": ["accessnewswire.com/newsroom|announces|receives|signs|reports|order|agreement|contract|customer|ai|data center|defense|semiconductor|robot|humanoid|automation|battery|energy storage|solar|nuclear|reactor|lithium|grid|hydrogen|offtake|charging"],
       "exclude_patterns": ["login", "pricing", "privacy", "terms", "contact"]
     },
     {
@@ -187,7 +187,7 @@
       "type": "html",
       "url": "https://www.therobotreport.com/",
       "trust": 0.68,
-      "include_patterns": ["robot|robotics|drone|autonomous|manufacturing|defense|funding|customer"],
+      "include_patterns": ["robot|robotics|humanoid|cobot|actuator|lidar|machine vision|warehouse|drone|autonomous|automation|manufacturing|defense|funding|order|contract|deploys|customer"],
       "exclude_patterns": ["webinar", "subscribe", "privacy"]
     },
     {
@@ -207,6 +207,27 @@
       "trust": 0.68,
       "include_patterns": ["rare earth|lithium|copper|uranium|critical minerals|mine|offtake|supply|project"],
       "exclude_patterns": ["advertise", "newsletter", "privacy"]
+    },
+    {
+      "name": "Electrek",
+      "group": "industry_vertical_media",
+      "type": "rss",
+      "url": "https://electrek.co/feed/",
+      "trust": 0.66
+    },
+    {
+      "name": "CleanTechnica",
+      "group": "industry_vertical_media",
+      "type": "rss",
+      "url": "https://cleantechnica.com/feed/",
+      "trust": 0.64
+    },
+    {
+      "name": "Energy-Storage.news",
+      "group": "industry_vertical_media",
+      "type": "rss",
+      "url": "https://www.energy-storage.news/feed/",
+      "trust": 0.68
     }
   ],
   "market_sources": [

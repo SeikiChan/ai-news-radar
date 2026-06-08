@@ -165,6 +165,24 @@
 
 ---
 
+## 7.5 代码审查记录（2026-05-31，vibe-slop 排查）
+
+工具化排查全仓库，结论：代码整体干净（增量开发有纪律）。处理/确认：
+- **已删 4 处死代码**：`scoring.score_evidence`（无人调用的"向后兼容"残留）、`filing_teardown._PCT_RE`（集中度重写后遗留）、JS `hasEarningsAnalysis` / `formatDateLabel`（UI 重写后无人调）。
+- **确认无**：TODO/FIXME/HACK、遗留 `print` 调试、注释掉的代码块、孤儿模块（18 个富化器全部接入 `web.run_scan`）。
+- **已知技术债（非 slop，暂不动）**：`_fetch_text` 这个 urllib GET 在 7 个模块各有一份（earnings_analysis/earnings_calendar/financials/options_chain/technology_intel/performance/ticker_resolver）。可合并到 `net.fetch_text`（顺带获得重试），但这些真网路径单测用注入 fetcher、默认路径无覆盖，合并存在"静默降级"回归风险，需谨慎 + 逐个核对 UA（如 earnings_calendar 需 Mozilla UA 给 nasdaq）。其余同名私有 helper（`_summary_zh`/`_num`/`_candidate_tickers` 等）是各模块本地实现、实现各异，属正常 Python 结构，非 slop。
+
+## 7.6 观察面扩展：去赛道锁定（2026-06-06）
+
+诊断：系统"发现"本就不受 watchlist 限制（discovery 反推 + ticker_resolver），但偏置藏在三层——采集源(垂直源全是 AI/半导体)、打分主题词(加分词全是 AI 基建)、观察池(机器人/能源仅零星)。按用户决策（AI 全产业链加深 + 机器人全产业链 + 能源转型；打分=硬证据核心 + 多前沿主题都加分）三层同改：
+
+- **打分（scoring.py TERM_WEIGHTS）**：硬证据词（量产/订单/预付款/backlog/design win）保持不变、仍是行业中立的评分核心；新增 ~60 个**多前沿主题加分词**（权重 6–18，多为 tier2/tier3 不单独触发）：AI 上中下游（advanced packaging/cowos/chiplet/hybrid bonding/training cluster/agentic ai/optical transceiver/neocloud…）、机器人全链（humanoid robot/harmonic reducer/robot actuator/machine vision/lidar/warehouse automation/cobot…）、能源转型（offtake agreement=18 视同硬证据/solid-state battery/gigafactory/small modular reactor/electrolyzer/grid interconnection/lithium…）。
+- **歧义防护**：`_AMBIGUOUS_WORD_ALIASES` 加 `emr/nee/path/pwr/smr`——这些 ticker 与常用词/缩写(电子病历/压水堆/小型堆/路径)相撞，只在 ticker 上下文(`$X`/`(X)`/`NASDAQ: X`)才计入，散文中不误标。
+- **观察池（config/watchlist.json）**：52 → 77 家。新增 AI链(SNPS/CDNS/ALAB/CRDO/CRWV/NBIS)、机器人(TSLA/SYM/CGNX/ZBRA/OUST/PATH/EMR/SERV)、能源(VST/NEE/FSLR/ENPH/FLNC/QS/SMR/OKLO/BWXT/ALB/PWR)。别名只用专属品牌/产品名+ticker，**不**用通用主题词当别名（避免一篇"machine vision"文章把所有视觉公司全标上）。
+- **采集源（config/sources.json）**：加 3 个稳定 RSS（Electrek/CleanTechnica/Energy-Storage.news）；放宽 Newsfile/ACCESS 通用线与 The Robot Report 的 include_patterns，纳入 robot/humanoid/battery/solar/nuclear/lithium/grid/hydrogen/offtake 等词——否则非 AI 领域的发布会被旧的 AI 关键词过滤掉。
+
+验证：机器人/能源的硬证据文章现在评分 54–76、tier=hard_evidence，与 AI 同等；散文误匹配守卫为空；156 测试通过 + ruff 干净。
+
 ## 8. 剩余 backlog
 
 - SQLite 持久化（替代 JSONL，支持信号绩效跨时间累积）。

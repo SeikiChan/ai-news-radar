@@ -1368,11 +1368,6 @@ function renderReadthroughAnalysis(candidate) {
 /* ------------------------------------------------------------------ */
 /* small helpers                                                      */
 /* ------------------------------------------------------------------ */
-function hasEarningsAnalysis(candidate) {
-  const analysis = objectValue(candidate.earnings_analysis);
-  return Boolean(analysis.status && analysis.status !== "not_earnings");
-}
-
 function hasTechnologyIntel(candidate) {
   const intel = objectValue(candidate.technology_intel);
   return Boolean(intel.status && intel.status !== "not_technology_signal");
@@ -1395,12 +1390,6 @@ function todayLocalIso() {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function formatDateLabel(dateText) {
-  const date = new Date(`${dateText}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateText || "unknown";
-  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", weekday: "short" });
 }
 
 function timeZh(value) {

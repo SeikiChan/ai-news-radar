@@ -71,7 +71,6 @@ _PURPOSE_PRIORITY: dict[str, int] = {
 # Capitalized multi-token proper-noun phrases (company-name candidates).
 _PHRASE_RE = re.compile(r"\b([A-Z][A-Za-z0-9&.\-]*(?:\s+(?:[A-Z][A-Za-z0-9&.\-]*|and|of|for))*[A-Za-z0-9])")
 _AMOUNT_RE = re.compile(r"\$\s?([0-9][0-9.,]*)\s?(billion|bn|million|m)?\b", re.IGNORECASE)
-_PCT_RE = re.compile(r"\b([0-9]{1,2}(?:\.[0-9]+)?)\s?%")
 # Strict customer-concentration pattern: "<n>% of [total/net] revenue|sales".
 _CONCENTRATION_RE = re.compile(
     r"([0-9]{1,2}(?:\.[0-9]+)?)\s?%\s+of\s+(?:our\s+|the\s+|its\s+)?(?:total\s+|net\s+|consolidated\s+)*"
