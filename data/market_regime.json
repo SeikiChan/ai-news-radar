@@ -1,15 +1,14 @@
 {
   "status": "degraded",
-  "regime": "risk_off",
-  "score": -3,
-  "summary": "宏观环境偏防守，需要提高投机性机会门槛。宏观分数=-3；核心数据连接=5/5。主因：纳斯达克 100 ETF 近 20 个观察日小幅上涨。 来源错误数：1。",
-  "generated_at": "2026-06-08T06:29:07.819733+00:00",
+  "regime": "neutral",
+  "score": -2,
+  "summary": "宏观环境方向混合，需要更强公司级证据。宏观分数=-2；核心数据连接=5/5。主因：纳斯达克 100 ETF 近 20 个观察日小幅上涨。 来源错误数：1。",
+  "generated_at": "2026-06-08T07:16:35.012066+00:00",
   "drivers": [
     "纳斯达克 100 ETF 近 20 个观察日小幅上涨",
     "VIX 为 21.5，高于舒适区",
     "VIX 近 5 个观察日上升 6.2 点，风险偏好转弱",
-    "美元指数近 20 个观察日上涨 2.3%，全球流动性压力上升",
-    "PPI 同比 6.0%，成本压力仍需关注"
+    "美元指数近 20 个观察日上涨 2.3%，全球流动性压力上升"
   ],
   "calculation_notes": [
     "这不是手写模板结论。SPY、QQQ、美元指数来自 Yahoo chart API；VIX 来自 Cboe；美债收益率来自 U.S. Treasury XML。",
@@ -283,84 +282,48 @@
     {
       "label": "U.S. Dollar Index",
       "category": "equity",
-      "value": 100.1,
+      "value": 100.126,
       "unit": "price",
       "as_of": "2026-06-08",
       "source": "Yahoo U.S. Dollar Index Chart API",
       "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?range=2mo&interval=1d",
       "status": "ok",
       "sparkline": [
-        28.32,
-        34.51,
-        47.79,
-        10.62,
-        16.37,
-        27.88,
-        28.32,
-        7.96,
-        18.14,
+        28.0,
+        34.12,
+        47.24,
+        10.5,
+        16.19,
+        27.56,
+        28.0,
+        7.87,
+        17.94,
         0.0,
-        4.43,
-        19.91,
-        28.32,
-        46.02,
-        63.27,
-        50.0,
-        64.6,
-        56.19,
-        59.73,
-        65.49,
-        58.85,
-        60.62,
-        52.21,
-        47.35,
-        60.18,
-        61.06,
-        74.78,
-        69.47,
-        98.67,
+        4.37,
+        19.69,
+        28.0,
+        45.49,
+        62.55,
+        49.43,
+        63.87,
+        55.56,
+        59.06,
+        64.74,
+        58.18,
+        59.93,
+        51.62,
+        46.81,
+        59.49,
+        60.37,
+        73.93,
+        68.68,
+        97.55,
         100.0
       ],
       "calculation": "5obs/20obs compare the latest valid observation with the value 5/20 valid observations earlier.",
-      "change_5d_pct": 0.91,
-      "change_20d_pct": 2.31,
+      "change_5d_pct": 0.93,
+      "change_20d_pct": 2.34,
       "key": "broad_dollar"
-    },
-    {
-      "label": "CPI",
-      "category": "inflation",
-      "value": 333.02,
-      "unit": "index",
-      "as_of": "2026-04",
-      "source": "BLS CPI Public API",
-      "source_url": "https://api.bls.gov/publicAPI/v2/timeseries/data/CUUR0000SA0",
-      "status": "ok",
-      "yoy_pct": 3.81,
-      "key": "cpi"
-    },
-    {
-      "label": "PPI final demand",
-      "category": "inflation",
-      "value": 156.878,
-      "unit": "index",
-      "as_of": "2026-04",
-      "source": "BLS PPI Final Demand Public API",
-      "source_url": "https://api.bls.gov/publicAPI/v2/timeseries/data/WPUFD4",
-      "status": "ok",
-      "yoy_pct": 5.99,
-      "key": "ppi"
-    },
-    {
-      "label": "Unemployment rate",
-      "category": "labor",
-      "value": 4.3,
-      "unit": "pct",
-      "as_of": "2026-05",
-      "source": "BLS Unemployment Rate Public API",
-      "source_url": "https://api.bls.gov/publicAPI/v2/timeseries/data/LNS14000000",
-      "status": "ok",
-      "yoy_pct": 0.0,
-      "key": "unemployment_rate"
     }
   ],
   "source_health": [
@@ -425,24 +388,24 @@
       "group": "inflation",
       "type": "api",
       "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/CUUR0000SA0",
-      "status": "ok",
-      "message": ""
+      "status": "limited",
+      "message": "Request could not be serviced, as the daily threshold for total number of requests allocated to the user with registration key  has been reached."
     },
     {
       "name": "BLS PPI Final Demand Public API",
       "group": "inflation",
       "type": "api",
       "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/WPUFD4",
-      "status": "ok",
-      "message": ""
+      "status": "limited",
+      "message": "Request could not be serviced, as the daily threshold for total number of requests allocated to the user with registration key  has been reached."
     },
     {
       "name": "BLS Unemployment Rate Public API",
       "group": "labor",
       "type": "api",
       "url": "https://api.bls.gov/publicAPI/v2/timeseries/data/LNS14000000",
-      "status": "ok",
-      "message": ""
+      "status": "limited",
+      "message": "Request could not be serviced, as the daily threshold for total number of requests allocated to the user with registration key  has been reached."
     },
     {
       "name": "BEA News Release RSS",
@@ -652,9 +615,12 @@
     }
   ],
   "implications": [
-    "提高机会晋级门槛，弱新闻直接过滤。",
-    "优先选择资产负债表稳、合同明确、短期收入可转换的公司。",
-    "对依赖融资的小盘股保持谨慎，除非新闻实质改变融资风险。"
+    "维持默认新闻证据门槛，不追弱信号，也不忽视硬证据。",
+    "只有来源可靠、证据重复、ticker 明确、价格成交量确认的标的才进入重点观察。",
+    "宏观事件用于判断仓位和节奏，不单独生成股票结论。"
   ],
-  "needed_feeds": []
+  "needed_feeds": [
+    "CPI",
+    "Unemployment rate"
+  ]
 }

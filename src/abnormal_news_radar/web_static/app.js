@@ -33,6 +33,7 @@ const elements = {
   liveDot: document.querySelector("#liveDot"),
   liveText: document.querySelector("#liveText"),
   oppBadge: document.querySelector("#oppBadge"),
+  serenityBadge: document.querySelector("#serenityBadge"),
   statusLine: document.querySelector("#statusLine"),
   errorBox: document.querySelector("#errorBox"),
   scanProgress: document.querySelector("#scanProgress"),
@@ -236,6 +237,7 @@ function setView(view) {
   const titles = {
     brief: "每日简报",
     opportunities: "机会清单",
+    serenity: "Serenity Alpha · 小而纯受益者",
     watchlist: "动态观察池",
     earnings: "财报工作台",
     technology: "技术前沿",
@@ -249,7 +251,7 @@ function setView(view) {
 
 function initialView() {
   const view = window.location.hash.replace("#", "").split(":")[0];
-  return ["brief", "opportunities", "watchlist", "earnings", "technology", "market", "process", "sources"].includes(view) ? view : "brief";
+  return ["brief", "opportunities", "serenity", "watchlist", "earnings", "technology", "market", "process", "sources"].includes(view) ? view : "brief";
 }
 
 function initialSelectedEarningsTicker() {
@@ -261,6 +263,7 @@ function render() {
   updateStatusStrip();
   if (state.view === "brief") renderBrief();
   if (state.view === "opportunities") renderOpportunities();
+  if (state.view === "serenity") renderSerenity();
   if (state.view === "watchlist") renderWatchlist();
   if (state.view === "earnings") renderEarnings();
   if (state.view === "technology") renderTechnology();
@@ -303,6 +306,9 @@ function updateStatusStrip() {
 
   const oppCount = reportRows().filter((row) => row.action === "research_now").length;
   elements.oppBadge.textContent = oppCount > 0 ? String(oppCount) : "";
+
+  const serenityCount = reportRows().filter((row) => objectValue(row.serenity_alpha).verdict === "qualified").length;
+  if (elements.serenityBadge) elements.serenityBadge.textContent = serenityCount > 0 ? String(serenityCount) : "";
 
   elements.liveDot.classList.toggle("stale", state.stale);
   elements.liveText.textContent = state.stale ? "OFFLINE" : "LIVE";
@@ -1321,6 +1327,108 @@ function renderEarningsAnalysis(candidate) {
       <div class="terms">${escapeHtml(analysis.read_through_zh || "")}</div>
       <div class="row-meta">${points}</div>
       <div class="terms">${escapeHtml(analysis.limitations_zh || "")}</div>
+    </div>
+  `;
+}
+
+/* ------------------------------------------------------------------ */
+/* SERENITY ALPHA (dedicated section)                                  */
+/* ------------------------------------------------------------------ */
+function renderSerenity() {
+  const rows = reportRows().filter((row) => objectValue(row.serenity_alpha).status && matchQuery(row));
+  if (!rows.length) {
+    elements.contentArea.innerHTML = '<div class="empty">本轮暂无候选可做 Serenity Alpha 评估（需先完成一次扫描）。</div>';
+    return;
+  }
+  const order = { qualified: 0, exploratory: 1, excluded: 2 };
+  rows.sort((a, b) => {
+    const sa = objectValue(a.serenity_alpha);
+    const sb = objectValue(b.serenity_alpha);
+    const oa = order[sa.verdict] ?? 3;
+    const ob = order[sb.verdict] ?? 3;
+    if (oa !== ob) return oa - ob;
+    return (Number(sb.alpha_score) || 0) - (Number(sa.alpha_score) || 0);
+  });
+  const counts = rows.reduce((acc, row) => {
+    const v = objectValue(row.serenity_alpha).verdict;
+    acc[v] = (acc[v] || 0) + 1;
+    return acc;
+  }, {});
+  const cards = rows.map(renderSerenityCard).join("");
+  elements.contentArea.innerHTML = `
+    <section class="section-head">
+      <div>
+        <h3>Serenity Alpha · ${rows.length} 个候选</h3>
+        <p>新闻 → 小而纯、被错误分类、对该需求高弹性的受益者。五维乘法分（任一维近 0 即归零），外加排除规则与 1–4 季验证链。这是只读第二视角，不改主排序。</p>
+        <div class="row-meta">
+          <span class="band weak">通过筛 ${counts.qualified || 0}</span>
+          <span class="band watch">探索级 ${counts.exploratory || 0}</span>
+          <span class="band monitor">被排除 ${counts.excluded || 0}</span>
+        </div>
+      </div>
+    </section>
+    <div class="serenity-grid">${cards}</div>
+  `;
+}
+
+function renderSerenityCard(row) {
+  const article = articleOf(row);
+  const tickers = candidateTickers(row);
+  return `
+    <article class="serenity-card">
+      <header class="sc-head">
+        <span class="sc-tkr">${escapeHtml(tickers.join(", ") || "—")}</span>
+        <span class="sc-name">${escapeHtml(row.company_name || "Unknown")}</span>
+        <span class="sc-score-num">分 ${Number(row.score || 0).toFixed(1)}</span>
+      </header>
+      <div class="sc-cat">${escapeHtml(article.title || "")}</div>
+      ${renderSerenityAlpha(row)}
+      <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · 打开原文 ↗</a></div>
+    </article>
+  `;
+}
+
+function renderSerenityAlpha(candidate) {
+  const sa = objectValue(candidate.serenity_alpha);
+  if (!sa.status || !Array.isArray(sa.dimensions) || !sa.dimensions.length) return "";
+  const verdictMap = {
+    qualified: ["weak", "通过 Serenity 筛"],
+    exploratory: ["watch", "仅探索级"],
+    excluded: ["monitor", "被排除"],
+  };
+  const [bandCls, verdictZh] = verdictMap[sa.verdict] || ["monitor", sa.verdict || ""];
+  const bars = sa.dimensions.map((d) => {
+    const value = Number(d.value) || 0;
+    const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+    const weak = d.label_zh === sa.weakest_zh;
+    return `<div class="sa-dim${weak ? " weak-link" : ""}">
+        <span class="sa-dim-k">${escapeHtml(d.label_zh)}</span>
+        <span class="sa-bar"><span style="width:${pct}%"></span></span>
+        <span class="sa-dim-v">${value.toFixed(2)}</span>
+      </div>`;
+  }).join("");
+  const filters = (sa.excluded_filters || []).map((f) => `<span class="ev warn">${escapeHtml(f.reason_zh)}</span>`).join(" ");
+  const vc = objectValue(sa.verification_chain);
+  const chainGroup = (title, items) => (Array.isArray(items) && items.length)
+    ? `<div class="row-title">${escapeHtml(title)}</div><div class="row-meta">${items.map((i) => `<span class="pill">${escapeHtml(i)}</span>`).join("")}</div>`
+    : "";
+  const meta = [
+    sa.market_cap_display && sa.market_cap_display !== "n/a" ? `市值 ${sa.market_cap_display}` : "",
+    sa.analyst_count != null ? `覆盖 ${sa.analyst_count} 家` : "",
+  ].filter(Boolean).map((m) => ` · ${escapeHtml(m)}`).join("");
+  return `
+    <div class="serenity">
+      <div><span class="band ${bandCls}">Serenity Alpha · ${escapeHtml(verdictZh)}</span> <strong class="sa-score">${escapeHtml(String(sa.alpha_score))}</strong>/100${meta}</div>
+      <div class="terms">${escapeHtml(sa.relabel_zh || "")}</div>
+      <div class="sa-dims">${bars}</div>
+      ${filters ? `<div class="missing-list" style="margin-top:6px">${filters}</div>` : ""}
+      <div class="terms" style="margin-top:6px"><strong>仓位姿态：</strong>${escapeHtml(sa.posture_zh || "")}</div>
+      <div class="row-title">验证链（1–4 季内证实 / 证伪）</div>
+      ${chainGroup("利润表", vc.income_statement)}
+      ${chainGroup("需求 / 现金流", vc.cashflow_demand)}
+      ${chainGroup("经营杠杆", vc.operating_leverage)}
+      ${chainGroup("市场侧印证", vc.market_validation)}
+      <div class="terms">${escapeHtml(vc.timeline_zh || "")}</div>
     </div>
   `;
 }

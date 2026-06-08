@@ -36,6 +36,7 @@ from .quality import enrich_candidates_with_quality_screen
 from .quick_model import enrich_candidates_with_quick_model
 from .readthrough import enrich_candidates_with_readthrough_analysis
 from .scoring import score_article
+from .serenity_alpha import enrich_candidates_with_serenity_alpha
 from .short_interest import enrich_candidates_with_short_interest
 from .storage import (
     append_candidates,
@@ -278,6 +279,9 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
     selected_candidate_rows = enrich_candidates_with_short_interest(selected_candidate_rows)
     # Smart-money flow: 13F-derived institutional accumulation / distribution.
     selected_candidate_rows = enrich_candidates_with_institutional_flow(selected_candidate_rows)
+    # Serenity Alpha: news -> small/pure/misclassified-beneficiary hypothesis
+    # (read-only second lens; needs evidence + impact + financials + flow above).
+    selected_candidate_rows = enrich_candidates_with_serenity_alpha(selected_candidate_rows, watchlist=watchlist)
     selected_candidate_rows = enrich_candidates_with_quick_model(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_earnings_analysis(selected_candidate_rows, watchlist=watchlist)
     selected_candidate_rows = enrich_candidates_with_technology_intel(selected_candidate_rows, watchlist=watchlist)

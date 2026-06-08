@@ -183,6 +183,18 @@
 
 验证：机器人/能源的硬证据文章现在评分 54–76、tier=hard_evidence，与 AI 同等；散文误匹配守卫为空；156 测试通过 + ruff 干净。
 
+## 7.7 Serenity Alpha 因子：新闻→小而纯受益者（2026-06-07）
+
+吸收 haskaomni/serenity-skill 的"news-to-alpha"选股哲学（`serenity_alpha.py`）。雷达默认按硬证据排序、天然偏向巨头；Serenity 反问：**这笔已可观测的需求变化，能真正撼动谁的报表？——找小而纯、被错误分类、对该需求高弹性的受益者。**
+
+- **五维乘法打分**（任一维近 0 即归零，必须全满足）：需求确定性 × 财务传导清晰度 × 业务纯度 × 市值弹性 × 市场忽视度 → `alpha_score` 0–100。输入复用候选体已有信号（evidence tier/confidence、impact 量化金额、SEC 财务快照营收、机构持仓%），**唯一新增取数**是 Yahoo `price+financialData`（市值 + 分析师覆盖数），走共享 cookie/crumb 会话，失败优雅降级为 `partial`。
+- **五条排除规则**：large_cap(>$200B 难撼报表) / narrative_only(纯叙事无金额) / distant_transmission(归属弱) / high_consensus(覆盖>25 或机构>90%) / unverifiable(无近端检查点)。结论分 qualified / exploratory / excluded。
+- **验证链**：利润表 / 需求·现金流 / 经营杠杆 / 市场侧印证 四桶检查点，按命中的证据词裁剪，1–4 季内证实或证伪；含仓位姿态映射 + 错误分类(relabel)研究提示。
+- **只读叠加层**：`enrich_candidates_with_serenity_alpha` 接在 impact/financials/institutional_flow 之后；**不改 score/action/排序**（按用户决策"先只做只读面板"）。前端在候选详情面板新增 Serenity 区块（五维条形图 + alpha 分 + 排除原因 + 验证链 + 仓位姿态）。
+- 未吸收 repo 另三个估值套件（Bayesian 估值 / GF-DMA 健康 / TAM-PEG）——它们需价格历史+分析师预期，留作后续。
+
+验证：新增 6 个离线测试（小盘纯标的高分通过 / 巨头被排除 / 纯叙事被排除 / 取数失败降级 等），全库 162 测试通过 + ruff 干净 + app.js 语法 OK。
+
 ## 8. 剩余 backlog
 
 - SQLite 持久化（替代 JSONL，支持信号绩效跨时间累积）。

@@ -579,7 +579,7 @@ table.opp tbody tr.opp-row.open { background: var(--surface-2); }
 .metric-row { min-height: 110px; }
 
 /* evidence sub-blocks (legacy, used in earnings/tech/readthrough detail) */
-.earnings-analysis, .technology-intel, .readthrough-analysis,
+.earnings-analysis, .technology-intel, .readthrough-analysis, .serenity,
 .market-confirmation, .impact-assessment, .financial-snapshot,
 .quick-model, .options-flow, .expectation-check {
   display: grid;
@@ -597,6 +597,28 @@ table.opp tbody tr.opp-row.open { background: var(--surface-2); }
 .readthrough-analysis { border-color: #44502e; background: rgba(140, 170, 86, 0.06); }
 .readthrough-list { display: grid; gap: 8px; }
 .readthrough-row { border-top: 1px solid var(--border); padding-top: 8px; }
+
+/* Serenity Alpha (news -> small/pure/misclassified beneficiary) */
+.serenity { border-color: #5a4a2c; background: rgba(196, 154, 78, 0.07); }
+.serenity .sa-score { font-size: 16px; color: #edc56e; }
+.sa-dims { display: grid; gap: 5px; margin-top: 4px; }
+.sa-dim { display: grid; grid-template-columns: 92px 1fr 34px; align-items: center; gap: 8px; }
+.sa-dim-k { font-size: 11px; color: var(--subtle); }
+.sa-dim-v { font-size: 11.5px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.sa-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.sa-bar > span { display: block; height: 100%; background: var(--amber, #c49a4e); }
+.sa-dim.weak-link .sa-dim-k { color: #f2a294; font-weight: 700; }
+.sa-dim.weak-link .sa-bar > span { background: #d8694f; }
+
+/* Serenity Alpha — dedicated section */
+.serenity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+.serenity-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--surface-2); }
+.serenity-card .serenity { margin-top: 8px; }
+.sc-head { display: flex; align-items: baseline; gap: 8px; }
+.sc-tkr { font-weight: 800; letter-spacing: 0.02em; color: var(--text); }
+.sc-name { color: var(--subtle); font-size: 12.5px; }
+.sc-score-num { margin-left: auto; font-size: 11px; color: var(--subtle); font-variant-numeric: tabular-nums; }
+.sc-cat { margin-top: 4px; font-size: 12px; line-height: 1.4; color: var(--text); }
 
 /* prominent financial stat tiles (earnings workbench) */
 .fin-panel { border-color: #2c5740; }
