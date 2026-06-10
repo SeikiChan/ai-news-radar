@@ -1,13 +1,29 @@
+"""Public options-chain anomaly scan over the CBOE delayed FULL chain.
+
+Previously this module read Yahoo's v7 options endpoint, which only returns
+the *nearest* expiration — the anomaly scan silently missed most of the chain.
+It now sources every listed contract (all expiries, with volume/OI/quotes)
+from the same CBOE delayed-quote JSON that ``gamma.py`` uses, and shares its
+OCC symbol parsing.
+
+The anomaly rules are unchanged: a contract is interesting when volume,
+estimated premium traded, volume/OI, time-to-expiry, and moneyness all line
+up. The output dict contract (status / direction / score / summary_zh /
+evidence_zh / rules_zh / contracts / source_url and the
+``public_options_chain_snapshot`` source tier) is preserved for analyst.py,
+expectations.py, and daily_report.py.
+"""
+
 from __future__ import annotations
 
 import json
 import math
-import time
-from urllib.request import Request, urlopen
+from datetime import datetime, timezone
 
-USER_AGENT = "AI-News-Radar/0.1 public-options-chain"
-FETCH_TIMEOUT_SECONDS = 8
-YAHOO_OPTIONS_URL = "https://query2.finance.yahoo.com/v7/finance/options/{ticker}"
+from .gamma import CBOE_CHAIN_URL, parse_occ_symbol
+from .net import fetch_text
+
+FETCH_TIMEOUT_SECONDS = 15
 
 MIN_VOLUME = 1000
 MIN_PREMIUM_USD = 250_000
@@ -36,21 +52,24 @@ def enrich_candidates_with_options_chain_anomalies(
     return enriched
 
 
-def assess_public_options_chain(ticker: str, fetcher: object | None = None) -> dict[str, object]:
+def assess_public_options_chain(
+    ticker: str,
+    fetcher: object | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
     symbol = ticker.strip().upper()
     if not symbol:
         return _no_chain("no_ticker", "missing ticker")
     fetch = fetcher or _fetch_text
-    source_url = YAHOO_OPTIONS_URL.format(ticker=symbol)
+    source_url = CBOE_CHAIN_URL.format(ticker=symbol)
     try:
         payload = json.loads(fetch(source_url))
-        result = (((payload.get("optionChain") or {}).get("result")) or [])[0]
+        data = payload.get("data") or {}
+        price = _to_float(data.get("current_price"))
+        contracts = _contracts_from_chain(data.get("options") or [], price, now=now)
     except Exception as exc:  # noqa: BLE001 - options chain should not break the scan.
         return _no_chain("unavailable", str(exc), symbol, source_url)
 
-    quote = result.get("quote") if isinstance(result, dict) else {}
-    price = _to_float((quote or {}).get("regularMarketPrice"))
-    contracts = _contracts_from_result(result, price)
     anomalies = [contract for contract in contracts if _is_anomalous(contract)]
     anomalies.sort(key=lambda row: (int(row["score"]), float(row["premium_usd"])), reverse=True)
     if not anomalies:
@@ -58,9 +77,9 @@ def assess_public_options_chain(ticker: str, fetcher: object | None = None) -> d
             "status": "no_flow_evidence",
             "direction": "none",
             "score": 0,
-            "summary_zh": f"{symbol} 公开期权链快照未发现达到阈值的异常成交。",
+            "summary_zh": f"{symbol} 公开期权链快照（CBOE 全链）未发现达到阈值的异常成交。",
             "source_tier": "public_options_chain_snapshot",
-            "source_policy_zh": "该层使用公开期权链快照，不是逐笔订单流；只能作为市场博弈线索，不能单独构成买入依据。",
+            "source_policy_zh": "该层使用 CBOE 延迟全链快照，不是逐笔订单流；只能作为市场博弈线索，不能单独构成买入依据。",
             "evidence_zh": [],
             "rules_zh": _rules_zh(),
             "source_url": source_url,
@@ -87,7 +106,7 @@ def assess_public_options_chain(ticker: str, fetcher: object | None = None) -> d
         "score": score,
         "summary_zh": _summary_zh(symbol, anomalies, call_premium, put_premium),
         "source_tier": "public_options_chain_snapshot",
-        "source_policy_zh": "该层来自公开期权链快照，参考开源 options-chain/flow 项目的思路；它不是 FlowAlgo/Unusual Whales 的逐笔 tape。",
+        "source_policy_zh": "该层来自 CBOE 延迟全链快照（覆盖全部到期日）；它不是 FlowAlgo/Unusual Whales 的逐笔 tape。",
         "evidence_zh": [_contract_evidence_zh(row) for row in anomalies[:5]],
         "rules_zh": _rules_zh(),
         "contracts": anomalies[:10],
@@ -95,42 +114,39 @@ def assess_public_options_chain(ticker: str, fetcher: object | None = None) -> d
     }
 
 
-def _contracts_from_result(result: dict[str, object], underlying_price: float | None) -> list[dict[str, object]]:
-    options = result.get("options") if isinstance(result, dict) else []
-    if not isinstance(options, list) or not options:
-        return []
-    rows = []
-    now = int(time.time())
-    for option_group in options[:1]:
-        if not isinstance(option_group, dict):
+def _contracts_from_chain(
+    rows: list[object],
+    underlying_price: float | None,
+    now: datetime | None = None,
+) -> list[dict[str, object]]:
+    moment = now or datetime.now(timezone.utc)
+    contracts = []
+    for raw in rows:
+        if not isinstance(raw, dict):
             continue
-        expiration = _to_int(option_group.get("expirationDate"))
-        dte = max(0, round((expiration - now) / 86400)) if expiration else None
-        for option_type in ("calls", "puts"):
-            contracts = option_group.get(option_type)
-            if not isinstance(contracts, list):
-                continue
-            for contract in contracts:
-                if not isinstance(contract, dict):
-                    continue
-                row = _contract_row(contract, "call" if option_type == "calls" else "put", dte, underlying_price)
-                if row is not None:
-                    rows.append(row)
-    return rows
+        meta = parse_occ_symbol(str(raw.get("option") or ""))
+        if meta is None:
+            continue
+        dte = max(0, (meta["expiry"] - moment.date()).days)  # type: ignore[operator]
+        row = _contract_row(raw, meta, dte, underlying_price)
+        if row is not None:
+            contracts.append(row)
+    return contracts
 
 
 def _contract_row(
     contract: dict[str, object],
-    option_type: str,
-    dte: int | None,
+    meta: dict[str, object],
+    dte: int,
     underlying_price: float | None,
 ) -> dict[str, object] | None:
     volume = _to_float(contract.get("volume"))
-    open_interest = _to_float(contract.get("openInterest"))
-    strike = _to_float(contract.get("strike"))
-    if volume is None or volume <= 0 or strike is None:
+    open_interest = _to_float(contract.get("open_interest"))
+    strike = float(meta["strike"])  # type: ignore[arg-type]
+    option_type = str(meta["cp"])
+    if volume is None or volume <= 0 or strike <= 0:
         return None
-    last = _to_float(contract.get("lastPrice"))
+    last = _to_float(contract.get("last_trade_price"))
     bid = _to_float(contract.get("bid"))
     ask = _to_float(contract.get("ask"))
     price = _contract_price(last, bid, ask)
@@ -146,12 +162,12 @@ def _contract_row(
         score += 1
     if volume_oi_ratio >= MIN_VOLUME_OI_RATIO:
         score += 1
-    if dte is not None and dte <= MAX_DTE:
+    if dte <= MAX_DTE:
         score += 1
     if _is_near_money(option_type, strike, underlying_price):
         score += 1
     return {
-        "contract_symbol": str(contract.get("contractSymbol") or ""),
+        "contract_symbol": str(contract.get("option") or ""),
         "type": option_type,
         "strike": strike,
         "dte": dte,
@@ -223,7 +239,7 @@ def _merge_options_flow(existing: object, chain: dict[str, object]) -> dict[str,
 def _summary_zh(symbol: str, anomalies: list[dict[str, object]], call_premium: float, put_premium: float) -> str:
     top = anomalies[0]
     return (
-        f"{symbol} 公开期权链发现 {len(anomalies)} 条异常合约；"
+        f"{symbol} 公开期权链（CBOE 全链）发现 {len(anomalies)} 条异常合约；"
         f"call premium≈${call_premium/1_000_000:.2f}m，put premium≈${put_premium/1_000_000:.2f}m。"
         f"最大线索：{top['type']} strike={top['strike']}，volume={top['volume']}，premium≈${float(top['premium_usd'])/1_000_000:.2f}m。"
     )
@@ -245,7 +261,7 @@ def _rules_zh() -> list[str]:
         f"估算权利金成交额 >= ${MIN_PREMIUM_USD:,}",
         f"volume/open interest >= {MIN_VOLUME_OI_RATIO} 或 OI 近似为 0",
         f"优先看 {MAX_DTE} 天内、接近现价的合约",
-        "该方法只能证明期权链出现异常，不能证明买方/卖方身份，也不能替代逐笔订单流。",
+        "扫描覆盖全部到期日（CBOE 全链），但该方法只能证明期权链出现异常，不能证明买方/卖方身份，也不能替代逐笔订单流。",
     ]
 
 
@@ -282,10 +298,7 @@ def _no_chain(status: str, reason: str, ticker: str = "", source_url: str = "") 
 
 
 def _fetch_text(url: str) -> str:
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
-        raw = response.read()
-    return raw.decode("utf-8", errors="replace")
+    return fetch_text(url, accept="application/json", timeout=FETCH_TIMEOUT_SECONDS)
 
 
 def _to_float(value: object) -> float | None:
@@ -293,14 +306,5 @@ def _to_float(value: object) -> float | None:
         if value in {None, "", ".", "-"}:
             return None
         return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _to_int(value: object) -> int | None:
-    try:
-        if value in {None, "", ".", "-"}:
-            return None
-        return int(value)
     except (TypeError, ValueError):
         return None

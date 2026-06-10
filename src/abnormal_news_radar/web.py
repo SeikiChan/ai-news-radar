@@ -29,7 +29,6 @@ from .institutional_flow import enrich_candidates_with_institutional_flow
 from .market import collect_market_regime
 from .net import configure_logging
 from .options_chain import enrich_candidates_with_options_chain_anomalies
-from .options_flow import enrich_candidates_with_options_flow
 from .pdf_intel import enrich_candidates_with_pdf_intel
 from .price_volume import enrich_candidates_with_market_confirmation
 from .quality import enrich_candidates_with_quality_screen
@@ -156,6 +155,11 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
             query = parse_qs(route.query)
             ticker = query.get("ticker", [""])[0]
             self._send_json(_holders_payload(ticker))
+            return
+        if route.path == "/api/diagnose":
+            query = parse_qs(route.query)
+            ticker = query.get("ticker", [""])[0]
+            self._send_json(_diagnose_payload(ticker))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -288,10 +292,9 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
     # Download & parse public PDFs (arXiv papers, .pdf links) for full-text evidence.
     selected_candidate_rows = enrich_candidates_with_pdf_intel(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_readthrough_analysis(selected_candidate_rows)
-    selected_candidate_rows = enrich_candidates_with_options_flow(
-        selected_candidate_rows,
-        articles=[_article_payload(article) for article in articles],
-    )
+    # Options evidence comes only from the public chain snapshot. The old
+    # keyword-scan of news text for "call sweep"-style phrases produced false
+    # confidence and was removed on purpose.
     selected_candidate_rows = enrich_candidates_with_options_chain_anomalies(selected_candidate_rows)
     selected_candidate_rows = enrich_candidates_with_expectation_check(selected_candidate_rows)
     saved_count = append_signals(output_path, selected)
@@ -318,7 +321,21 @@ def run_scan(limit: int, min_score: float, limit_per_source: int) -> dict[str, o
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
     LAST_SCAN.update(response)
+    _export_daily_report_safe()
     return response
+
+
+def _export_daily_report_safe() -> None:
+    """Write the daily report to ``reports/`` after each scan so an external
+    scheduler (e.g. a Claude Desktop scheduled task) can read a fresh file.
+    Never breaks the scan — export failure is recorded and swallowed."""
+    try:
+        from .daily_report import export_daily_report
+
+        brief = _brief_payload().get("brief", {})
+        export_daily_report(brief, PROJECT_ROOT / "reports")
+    except Exception as exc:  # noqa: BLE001 - export must never break the scan.
+        LAST_SCAN["report_export_error"] = str(exc)[:200]
 
 
 def _start_scheduler_once() -> None:
@@ -505,6 +522,40 @@ def _holders_payload(ticker: str) -> dict[str, object]:
             return {"ok": True, "ticker": symbol, "status": "unavailable", "holders": [], "reason": str(exc)[:160]}
         HOLDERS_CACHE[symbol] = (_time.time(), result)
         return {"ok": True, "ticker": symbol, **result}
+
+
+DIAGNOSE_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+DIAGNOSE_CACHE_TTL_SECONDS = 10 * 60
+DIAGNOSE_LOCK = threading.Lock()
+
+
+def _diagnose_payload(ticker: str) -> dict[str, object]:
+    """Ticker mispricing diagnosis (positioning + gamma + RS + evidence).
+
+    Several network round-trips (FINRA daily files, CBOE full chain, Yahoo
+    charts), so cached for 10 minutes per ticker.
+    """
+    import time as _time
+
+    symbol = str(ticker or "").upper().strip()
+    if not symbol:
+        return {"ok": False, "error": "missing ticker"}
+    cached = DIAGNOSE_CACHE.get(symbol)
+    if cached is not None and _time.time() - cached[0] < DIAGNOSE_CACHE_TTL_SECONDS:
+        return {"ok": True, **cached[1]}
+
+    with DIAGNOSE_LOCK:
+        cached = DIAGNOSE_CACHE.get(symbol)
+        if cached is not None and _time.time() - cached[0] < DIAGNOSE_CACHE_TTL_SECONDS:
+            return {"ok": True, **cached[1]}
+        from .diagnose import diagnose_ticker
+
+        try:
+            result = diagnose_ticker(symbol)
+        except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
+            return {"ok": False, "ticker": symbol, "error": str(exc)[:200]}
+        DIAGNOSE_CACHE[symbol] = (_time.time(), result)
+        return {"ok": True, **result}
 
 
 def _watchlist_for_index() -> list[object]:

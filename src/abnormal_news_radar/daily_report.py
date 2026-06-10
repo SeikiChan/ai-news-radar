@@ -9,7 +9,9 @@ investment recommendation, and it says so.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 MARKET_TZ = ZoneInfo("America/New_York")
@@ -63,8 +65,12 @@ def render_daily_report(brief: dict[str, object], top_n: int = 5, watchlist_n: i
         lines.extend(_render_call(index, _dict(item)))
     lines.append("")
 
+    # --- serenity alpha ----------------------------------------------------
+    lines.append("## 三、Serenity Alpha · 小而纯受益者（选股第二视角）")
+    lines.extend(_render_serenity_section(report_items))
+
     # --- watchlist ---------------------------------------------------------
-    lines.append("## 三、动态观察池")
+    lines.append("## 四、动态观察池")
     if not watchlist:
         lines.append("- 观察池暂无足够证据。")
     for row in watchlist[:watchlist_n]:
@@ -77,7 +83,7 @@ def render_daily_report(brief: dict[str, object], top_n: int = 5, watchlist_n: i
     lines.append("")
 
     # --- earnings ----------------------------------------------------------
-    lines.append("## 四、未来财报窗口")
+    lines.append("## 五、未来财报窗口")
     items = _list(earnings.get("items"))
     if items:
         lines.append(f"- {earnings.get('summary_zh') or ''}")
@@ -91,7 +97,7 @@ def render_daily_report(brief: dict[str, object], top_n: int = 5, watchlist_n: i
     lines.append("")
 
     # --- gaps --------------------------------------------------------------
-    lines.append("## 五、证据缺口（系统下一轮要补，不是你的待办）")
+    lines.append("## 六、证据缺口（系统下一轮要补，不是你的待办）")
     if gaps:
         for gap in gaps[:8]:
             lines.append(f"- {gap}")
@@ -107,6 +113,110 @@ def render_daily_report(brief: dict[str, object], top_n: int = 5, watchlist_n: i
         f" 评分确定性可解释；高分仅代表证据密度，alpha 需反馈闭环成熟后才能确认。"
     )
     return "\n".join(lines)
+
+
+_VERDICT_ZH = {"qualified": "通过筛", "exploratory": "探索级", "excluded": "被排除"}
+
+
+def _render_serenity_section(report_items: list[object], top_n: int = 6) -> list[str]:
+    rows = [(_dict(item), _dict(_dict(item).get("serenity_alpha"))) for item in report_items]
+    rows = [(item, sa) for item, sa in rows if sa.get("status")]
+    if not rows:
+        return ["- 本轮候选暂无 Serenity Alpha 评估（缺确认 ticker 或市值/覆盖数据未取到）。", ""]
+    order = {"qualified": 0, "exploratory": 1, "excluded": 2}
+    rows.sort(key=lambda r: (order.get(str(r[1].get("verdict")), 3), -_num(r[1].get("alpha_score"))))
+    counts: dict[str, int] = {}
+    for _item, sa in rows:
+        verdict = str(sa.get("verdict"))
+        counts[verdict] = counts.get(verdict, 0) + 1
+    lines = [
+        f"- 通过筛 {counts.get('qualified', 0)} · 探索级 {counts.get('exploratory', 0)} · 被排除 {counts.get('excluded', 0)}"
+        "（找小而纯、被错分类、对该需求高弹性的受益者；五维乘法分，任一维近 0 即归零）"
+    ]
+    for item, sa in rows[:top_n]:
+        tickers = ", ".join(str(t) for t in _list(item.get("tickers"))) or str(item.get("company_name") or "待确认")
+        verdict = _VERDICT_ZH.get(str(sa.get("verdict")), str(sa.get("verdict")))
+        head = f"- **[{verdict} · alpha {_num(sa.get('alpha_score')):.0f}] {tickers}** {item.get('company_name') or ''} — 最弱环节:{sa.get('weakest_zh') or '—'}"
+        cap = sa.get("market_cap_display")
+        if cap and cap != "n/a":
+            head += f" · 市值 {cap}"
+        lines.append(head)
+        if sa.get("posture_zh"):
+            lines.append(f"   - 仓位姿态：{sa.get('posture_zh')}")
+        filters = _list(sa.get("excluded_filters"))
+        if filters:
+            reasons = "；".join(str(_dict(f).get("reason_zh")) for f in filters[:2])
+            lines.append(f"   - 排除原因：{reasons}")
+    lines.append("")
+    return lines
+
+
+def export_daily_report(brief: dict[str, object], reports_dir: str | Path, top_n: int = 5, watchlist_n: int = 8) -> dict[str, str]:
+    """Write the daily report to a stable location for scheduled external readers
+    (e.g. a Claude Desktop scheduled task): ``latest-daily-report.md`` (always
+    current), a dated archive under ``daily/``, and a structured JSON companion
+    so skills can parse exact tickers/scores. Returns the written paths."""
+    base = Path(reports_dir)
+    (base / "daily").mkdir(parents=True, exist_ok=True)
+    markdown = render_daily_report(brief, top_n=top_n, watchlist_n=watchlist_n)
+    today = datetime.now(MARKET_TZ).strftime("%Y-%m-%d")
+    latest_md = base / "latest-daily-report.md"
+    dated_md = base / "daily" / f"{today}.md"
+    latest_json = base / "latest-daily-report.json"
+    latest_md.write_text(markdown, encoding="utf-8")
+    dated_md.write_text(markdown, encoding="utf-8")
+    latest_json.write_text(json.dumps(_structured_payload(brief, today), ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"markdown": str(latest_md), "dated": str(dated_md), "json": str(latest_json)}
+
+
+def _structured_payload(brief: dict[str, object], today: str) -> dict[str, object]:
+    counts = _dict(brief.get("counts"))
+    regime = _dict(brief.get("market_regime"))
+    items = _list(brief.get("analyst_report"))
+
+    def _call(item: object) -> dict[str, object]:
+        item = _dict(item)
+        article = _dict(item.get("article"))
+        sa = _dict(item.get("serenity_alpha"))
+        return {
+            "tickers": _list(item.get("tickers")),
+            "company": item.get("company_name"),
+            "action": item.get("action"),
+            "score": _num(item.get("score")),
+            "confidence": _num(item.get("confidence")),
+            "evidence_terms": [str(t) for t in _list(item.get("matched_terms"))[:8]],
+            "catalyst": {
+                "source": article.get("source"),
+                "title": article.get("title"),
+                "link": article.get("link"),
+                "published": article.get("published"),
+            },
+            "serenity_alpha": {
+                "alpha_score": sa.get("alpha_score"),
+                "verdict": sa.get("verdict"),
+                "weakest": sa.get("weakest_zh"),
+                "market_cap_usd": sa.get("market_cap_usd"),
+                "analyst_count": sa.get("analyst_count"),
+                "excluded_filters": [str(_dict(f).get("key")) for f in _list(sa.get("excluded_filters"))],
+            } if sa.get("status") else None,
+        }
+
+    return {
+        "date": today,
+        "generated_at": datetime.now(MARKET_TZ).isoformat(),
+        "purpose": ("AI News Radar daily export for a Claude Desktop scheduled task. "
+                    "Research triage / idea sourcing only — NOT investment advice. "
+                    "Analyze with serenity-alpha and other relevant skills."),
+        "market_regime": {"regime": regime.get("regime"), "score": regime.get("score")},
+        "counts": {
+            "articles_reviewed": counts.get("articles_reviewed"),
+            "report_items": counts.get("report_items"),
+            "urgent_items": counts.get("urgent_items"),
+        },
+        "top_calls": [_call(item) for item in items[:15]],
+        "earnings": [_dict(row) for row in _list(_dict(brief.get("earnings_calendar")).get("items"))[:15]],
+        "data_gaps": [str(g) for g in (_list(brief.get("data_gaps_zh")) or _list(brief.get("data_gaps")))[:8]],
+    }
 
 
 def _render_call(index: int, item: dict[str, object]) -> list[str]:

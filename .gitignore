@@ -6,6 +6,9 @@ data/*.jsonl
 data/*.db
 data/*.sqlite
 
+# Auto-generated daily report exports (for Claude Desktop scheduled reading)
+reports/
+
 # Build / packaging artifacts
 *.egg-info/
 build/

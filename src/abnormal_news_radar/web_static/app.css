@@ -225,6 +225,25 @@ a { color: inherit; }
   gap: 12px;
 }
 
+.diagnose-form { align-items: center; }
+.diagnose-form input {
+  width: 140px;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 4px 10px;
+}
+.diagnose-form .small-action {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 4px 14px;
+  cursor: pointer;
+}
+.diagnose-form .small-action:hover { border-color: var(--muted); }
+
 .content-grid {
   display: grid;
   gap: 10px;

@@ -14,6 +14,7 @@ const state = {
   calendar: { month: currentMonthIso(), items: [], summary: "", loaded: false, loading: false },
   financials: {},
   holders: {},
+  diagnose: { ticker: "", loading: false, result: null, error: "" },
 };
 
 function currentMonthIso() {
@@ -238,6 +239,7 @@ function setView(view) {
     brief: "每日简报",
     opportunities: "机会清单",
     serenity: "Serenity Alpha · 小而纯受益者",
+    diagnose: "个股诊断 · 错杀分析",
     watchlist: "动态观察池",
     earnings: "财报工作台",
     technology: "技术前沿",
@@ -251,7 +253,7 @@ function setView(view) {
 
 function initialView() {
   const view = window.location.hash.replace("#", "").split(":")[0];
-  return ["brief", "opportunities", "serenity", "watchlist", "earnings", "technology", "market", "process", "sources"].includes(view) ? view : "brief";
+  return ["brief", "opportunities", "serenity", "diagnose", "watchlist", "earnings", "technology", "market", "process", "sources"].includes(view) ? view : "brief";
 }
 
 function initialSelectedEarningsTicker() {
@@ -264,6 +266,7 @@ function render() {
   if (state.view === "brief") renderBrief();
   if (state.view === "opportunities") renderOpportunities();
   if (state.view === "serenity") renderSerenity();
+  if (state.view === "diagnose") renderDiagnose();
   if (state.view === "watchlist") renderWatchlist();
   if (state.view === "earnings") renderEarnings();
   if (state.view === "technology") renderTechnology();
@@ -1185,6 +1188,124 @@ function renderTechnologyCard(candidate) {
 /* ------------------------------------------------------------------ */
 /* MARKET                                                             */
 /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* DIAGNOSE — ticker mispricing workbench                              */
+/* ------------------------------------------------------------------ */
+async function runDiagnose(ticker) {
+  const symbol = String(ticker || "").toUpperCase().trim();
+  if (!symbol) return;
+  state.diagnose = { ticker: symbol, loading: true, result: null, error: "" };
+  renderDiagnose();
+  try {
+    const response = await fetch(`/api/diagnose?ticker=${encodeURIComponent(symbol)}`);
+    const payload = await response.json();
+    if (!payload.ok) throw new Error(payload.error || "诊断失败");
+    state.diagnose = { ticker: symbol, loading: false, result: payload, error: "" };
+  } catch (error) {
+    state.diagnose = { ticker: symbol, loading: false, result: null, error: String(error.message || error) };
+  }
+  if (state.view === "diagnose") renderDiagnose();
+}
+
+function diagnoseVerdictClass(verdict) {
+  if (verdict === "mispriced_candidate") return "risk_on";
+  if (verdict === "watchlist") return "neutral";
+  return "risk_off";
+}
+
+function renderDiagnose() {
+  const diag = state.diagnose || {};
+  const result = diag.result;
+  const form = `
+    <section class="row">
+      <div class="row-title">输入 ticker，回答一个问题：这只股是被错杀，还是真的坏了？</div>
+      <div class="row-meta diagnose-form">
+        <input id="diagTicker" type="text" placeholder="例如 CRDO / SMCI / MU" value="${escapeHtml(diag.ticker || "")}"
+               style="text-transform:uppercase" maxlength="6" aria-label="Ticker">
+        <button id="diagRun" class="small-action" type="button">诊断</button>
+        ${diag.loading ? "<span>正在拉取 FINRA 卖空 / CBOE 期权链 / 价格序列…（首次约 10-30 秒）</span>" : ""}
+      </div>
+      <div class="terms">数据源：FINRA 日度卖空、CBOE 延迟期权链（含希腊值）、Yahoo 价格、本地雷达新闻命中。全部免费公开数据，缺数据时明示，不伪造。</div>
+    </section>
+  `;
+  let body = "";
+  if (diag.error) {
+    body = `<div class="errors">诊断失败：${escapeHtml(diag.error)}</div>`;
+  } else if (result && result.status === "insufficient_data") {
+    body = `<div class="empty">${escapeHtml(result.summary_zh || "数据不足，无法诊断。")}</div>`;
+  } else if (result && result.status === "ok") {
+    body = renderDiagnoseResult(result);
+  } else if (!diag.loading) {
+    body = '<div class="empty">先诊断一只你怀疑被错杀的股票。诊断结论会自动存档，未来用 report 机制回测命中率。</div>';
+  }
+  elements.contentArea.innerHTML = form + body;
+  const input = document.querySelector("#diagTicker");
+  const button = document.querySelector("#diagRun");
+  if (button && input) {
+    button.addEventListener("click", () => runDiagnose(input.value));
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") runDiagnose(input.value);
+    });
+    if (!diag.loading && !result) input.focus();
+  }
+}
+
+function renderDiagnoseResult(result) {
+  const premise = objectValue(result.premise);
+  const componentsBlock = (result.score_components || []).map((component) => `
+    <article class="row metric-row">
+      <div class="row-title">${escapeHtml(component.name)} <span class="pill">${escapeHtml(component.points)}/${escapeHtml(component.max)}</span></div>
+      <div class="terms">${escapeHtml(component.reason_zh || "")}</div>
+    </article>
+  `).join("");
+  const triggers = (result.triggers_zh || []).map((trigger) => `<li>${escapeHtml(trigger)}</li>`).join("");
+  const parts = objectValue(result.components);
+  const sectionSummaries = [
+    ["跌幅归因 / 动量", objectValue(parts.relative_strength).summary_zh],
+    ["空头行为（FINRA 日度）", objectValue(parts.positioning).summary_zh],
+    ["期权结构（GEX / IV / P-C）", objectValue(parts.options_structure).summary_zh],
+    ["市场恐惧（VIX）", objectValue(parts.vix).summary_zh],
+  ].filter(([, text]) => Boolean(text)).map(([label, text]) => `
+    <article class="row">
+      <div class="row-title">${escapeHtml(label)}</div>
+      <div class="terms">${escapeHtml(text)}</div>
+    </article>
+  `).join("");
+  const news = objectValue(parts.radar_news);
+  const newsRows = (news.recent || []).slice(0, 6).map((hit) => `
+    <article class="row">
+      <a href="${escapeHtml(hit.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(hit.title || "Untitled")}</a>
+      <div class="row-meta">
+        <span class="pill">${escapeHtml(hit.evidence_tier || "signal")}</span>
+        <span>${escapeHtml(hit.published || "")}</span>
+      </div>
+    </article>
+  `).join("");
+  const gaps = (result.data_gaps || []).join("、");
+  const optionsPolicy = objectValue(parts.options_structure).source_policy_zh || "";
+  return `
+    <section class="macro-hero ${diagnoseVerdictClass(result.verdict)}">
+      <div>
+        <div class="row-title">
+          ${escapeHtml(result.ticker)} 错杀分 ${escapeHtml(result.score)}/100
+          <span class="pill">${escapeHtml(premise.in_drawdown ? "回撤前提成立" : "无明显回撤")}</span>
+          ${gaps ? `<span class="pill">缺失: ${escapeHtml(gaps)}</span>` : ""}
+        </div>
+        <p>${escapeHtml(result.verdict_zh || "")}</p>
+        <div class="terms">${escapeHtml(result.method_zh || "")}</div>
+      </div>
+    </section>
+    <section class="section-head"><div><h3>评分构成</h3><p>每一项都附理由；分数回答「结构是否支持错杀假设」，不直接构成买入指令。</p></div></section>
+    <section class="source-grid">${componentsBlock}</section>
+    <section class="section-head"><div><h3>触发条件</h3><p>出现以下任一信号，才把「观察」升级为「行动」。</p></div></section>
+    <section class="row"><ul class="terms">${triggers}</ul></section>
+    <section class="section-head"><div><h3>各维度读数</h3></div></section>
+    <section class="source-grid">${sectionSummaries}</section>
+    ${newsRows ? `<section class="section-head"><div><h3>雷达新闻命中（近${escapeHtml(news.lookback_days || 90)}天，硬证据 ${escapeHtml(news.hard_evidence_hits || 0)} 条）</h3></div></section><section class="source-grid">${newsRows}</section>` : ""}
+    ${optionsPolicy ? `<section class="row"><div class="terms">${escapeHtml(optionsPolicy)}</div></section>` : ""}
+  `;
+}
+
 function renderMarket() {
   const regime = state.brief?.market_regime;
   const conclusion = state.brief?.market_conclusion_zh || {};

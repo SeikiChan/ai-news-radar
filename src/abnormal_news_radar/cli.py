@@ -38,12 +38,30 @@ def main() -> None:
     report.add_argument("--limit", type=int, default=500, help="Max stored rows to evaluate per file.")
     report.add_argument("--json", action="store_true", help="Print the raw report as JSON.")
 
+    diagnose = subparsers.add_parser(
+        "diagnose",
+        help="Diagnose one ticker for mispricing (错杀): attribution, positioning, gamma, evidence.",
+    )
+    diagnose.add_argument("ticker", help="Ticker symbol, e.g. CRDO")
+    diagnose.add_argument("--json", action="store_true", help="Print the raw diagnosis as JSON.")
+
     daily = subparsers.add_parser(
         "daily",
         help="Render a one-page institutional morning report (Markdown) from the latest brief.",
     )
     daily.add_argument("--output", default="", help="Write the report to this file instead of stdout.")
     daily.add_argument("--top", type=int, default=5, help="Number of TOP CALLS to include.")
+    daily.add_argument(
+        "--export-dir",
+        default="",
+        help="Write latest-daily-report.md + dated archive + JSON companion into this dir "
+        "(for a Claude Desktop scheduled task / Windows Task Scheduler).",
+    )
+    daily.add_argument(
+        "--scan",
+        action="store_true",
+        help="Run a fresh scan before rendering, so a standalone daily cron works without the web server.",
+    )
 
     args = parser.parse_args()
     configure_logging()
@@ -57,13 +75,75 @@ def main() -> None:
         run_report(args)
     elif args.command == "daily":
         run_daily(args)
+    elif args.command == "diagnose":
+        run_diagnose(args)
+
+
+def run_diagnose(args: argparse.Namespace) -> None:
+    from .diagnose import diagnose_ticker
+
+    result = diagnose_ticker(args.ticker)
+    if args.json:
+        import json
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    _print_diagnosis(result)
+
+
+def _print_diagnosis(result: dict[str, object]) -> None:
+    status = str(result.get("status") or "")
+    if status != "ok":
+        print(result.get("summary_zh") or f"诊断失败：{result.get('reason')}")
+        return
+    print(f"\n{result.get('summary_zh')}\n")
+    print("评分构成:")
+    for component in result.get("score_components", []) or []:
+        print(f"  {component['name']:<6} {component['points']:>3}/{component['max']:<3} {component['reason_zh']}")
+    print("\n触发条件（出现后才升级为可行动）:")
+    for trigger in result.get("triggers_zh", []) or []:
+        print(f"  - {trigger}")
+    components = result.get("components") if isinstance(result.get("components"), dict) else {}
+    for key in ("relative_strength", "positioning", "options_structure", "vix"):
+        section = components.get(key) if isinstance(components.get(key), dict) else {}
+        summary = section.get("summary_zh")
+        if summary:
+            print(f"\n[{key}] {summary}")
+    news = components.get("radar_news") if isinstance(components.get("radar_news"), dict) else {}
+    recent = news.get("recent") or []
+    if recent:
+        print(f"\n[radar_news] 近{news.get('lookback_days')}天命中 {news.get('total_hits')} 条（硬证据 {news.get('hard_evidence_hits')} 条）:")
+        for hit in recent[:5]:
+            print(f"  - [{hit.get('evidence_tier') or 'signal'}] {hit.get('title')}")
+    gaps = result.get("data_gaps") or []
+    if gaps:
+        print(f"\n缺失数据: {', '.join(str(g) for g in gaps)}")
+    print(f"\n方法说明: {result.get('method_zh')}")
 
 
 def run_daily(args: argparse.Namespace) -> None:
-    from .daily_report import render_daily_report
-    from .web import _brief_payload
+    from .daily_report import export_daily_report, render_daily_report
+    from .web import (
+        DEFAULT_LIMIT_PER_SOURCE,
+        DEFAULT_MIN_SCORE,
+        DEFAULT_SIGNAL_LIMIT,
+        _brief_payload,
+    )
+    from .web import run_scan as web_run_scan
+
+    if args.scan:
+        web_run_scan(
+            limit=DEFAULT_SIGNAL_LIMIT,
+            min_score=DEFAULT_MIN_SCORE,
+            limit_per_source=DEFAULT_LIMIT_PER_SOURCE,
+        )
 
     brief = _brief_payload().get("brief", {})
+    if args.export_dir:
+        paths = export_daily_report(brief, args.export_dir, top_n=args.top)
+        print(f"Daily report exported:\n  {paths['markdown']}\n  {paths['dated']}\n  {paths['json']}")
+        return
+
     markdown = render_daily_report(brief, top_n=args.top)
     if args.output:
         path = Path(args.output)

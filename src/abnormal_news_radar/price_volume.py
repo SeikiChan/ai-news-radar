@@ -186,6 +186,18 @@ def _chart_points(result: dict[str, object]) -> list[dict[str, object]]:
             continue
         date = datetime.fromtimestamp(int(timestamp), tz=timezone.utc).date().isoformat()
         points.append({"date": date, "close": float(close), "volume": int(volume)})
+    # Yahoo reports the in-progress session as close=null; the live price lives
+    # in meta.regularMarketPrice. Without this the "latest" close is a day stale.
+    if closes and closes[-1] is None:
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        live = meta.get("regularMarketPrice")
+        stamp = meta.get("regularMarketTime")
+        if isinstance(live, (int, float)) and float(live) > 0 and isinstance(stamp, (int, float)):
+            date = datetime.fromtimestamp(int(stamp), tz=timezone.utc).date().isoformat()
+            if not points or points[-1]["date"] != date:
+                points.append(
+                    {"date": date, "close": float(live), "volume": int(meta.get("regularMarketVolume") or 0)}
+                )
     return points
 
 

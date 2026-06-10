@@ -20,7 +20,7 @@
 - **包布局**：源码在 `src/abnormal_news_radar/`，经 `src` 包导入（如 `from src.abnormal_news_radar.x import y`）。测试在 `tests/`。
 - **跑测试 / lint**（务必在改动后跑）：
   ```
-  .venv/Scripts/python.exe -m pytest        # 当前 156 passed
+  .venv/Scripts/python.exe -m pytest        # 当前 185 passed
   .venv/Scripts/ruff.exe check src tests    # 必须 clean
   node --check src/abnormal_news_radar/web_static/app.js  # 前端语法
   ```
@@ -71,6 +71,10 @@
 | `model.py` | 数据类（Article/Signal/Candidate/Source…）|
 | `ticker_resolver.py` | 发现型公司名 → ticker（SEC）|
 | `price_volume.py` | Yahoo 价量确认 |
+| `positioning.py` | FINRA 日度卖空占比（暗盘情绪代理）+ 趋势 |
+| `gamma.py` | CBOE 全链 GEX/翻转位/call-put wall/P-C 比/IV 期限结构 + IV 快照累积 |
+| `relative_strength.py` | 跌幅板块归因（错杀 vs 陪葬）+ RSI/均线/卖压衰竭 |
+| `diagnose.py` | 个股错杀诊断编排：透明评分 + 触发条件 + 归档回测 |
 | `impact.py` | 新闻一阶财务影响初判 + 金额抽取 |
 | `financials.py` | SEC companyfacts：营收/毛利/TTM/现金/经营现金流/**资金投向**；`fetch_recent_filings`(10-Q/10-K/8-K 直链, 1年内)；`load_default_cik_map` |
 | `quality.py` | **财务体检/防诈骗**：营收弹性、毛利趋势、生存跑道 → `[高风险归零股]`一票否决等 |
@@ -116,6 +120,16 @@
 ## 5. 变更历史（按主题，最新在前）
 
 > 注：仓库以 `V0.1…V0.8` 递增提交。以下按**功能主题**归纳本轮大修内容（跨多个 commit）。
+
+### 个股诊断层（错杀分析，2026-06-10）
+- **产品翻转**：新增 ticker 为中心的诊断入口（此前只有"新闻→候选"单向流，无法主动诊断一只怀疑被错杀的股票）。CLI `diagnose TICKER [--json]`、Web「诊断 Diagnose」标签页、`GET /api/diagnose?ticker=X`（10 分钟缓存）。
+- **`positioning.py`**：FINRA Reg SHO 日度卖空成交文件（免费）→ 卖空占比（暗盘情绪代理）+ 20 日趋势（rising=空头施压 / falling=回补）。文件缓存在 `data/finra_short_volume/`，非交易日 404/403 自动跳过。
+- **`gamma.py`**：CBOE 延迟全链 `cdn.cboe.com/api/global/delayed_quotes/options/{t}.json`（**自带每张合约的 gamma/delta/IV/OI**）→ 净 GEX、gamma 翻转位、call/put wall、P/C 持仓与成交比、ATM IV 期限倒挂（恐慌定价）。每日快照存 `data/options_structure_history.jsonl`，积累 20 个交易日后自动输出 IV Rank。GEX 是 OI+做市商惯例假设的估计，UI 必须保留诚实声明。
+- **`relative_strength.py`**：跌幅归因（个股 20 日跌幅 = 板块 ETF 贡献 + 自身残差，beta≈1 简化；板块查询失败时退回 SPY 代理并标注）+ RSI/均线结构/52周位置/放量下跌计数/卖压衰竭判定。
+- **`diagnose.py`**：编排上述 + short_interest + VIX + 雷达新闻命中 → 透明规则错杀分（归因25/卖压20/空头20/期权20/证据15），回撤前提不满足时封顶 30 分并裁决 `no_mispricing_premise`；输出**触发条件**（收复 gamma 翻转位、卖空占比连降3日等）而非直接买卖指令。每日每标的归档一行到 `data/diagnoses.jsonl` 供回测。
+- **删除 `options_flow.py`（关键词伪信号）**：原模块在新闻文本里抓 "call sweep"/"premium" 字样冒充期权流，产生虚假信心，连同测试一并删除；`options_flow` 键现在只由 `options_chain.py`（公开链快照）写入。
+- **`options_chain.py` 迁移到 CBOE 全链**：原 Yahoo v7 端点只返回最近一个到期日（`options[:1]`），异常扫描漏掉绝大部分链。现改用 CBOE 延迟全链（与 gamma.py 共享 `parse_occ_symbol`），异常规则与输出契约（status/direction/score/…/`public_options_chain_snapshot`）不变，NVDA 实测异常合约覆盖 0/2/22 天多个到期日。
+- **修复 Yahoo 当日收盘为 null 的陈旧价 bug**：`relative_strength` 与 `price_volume._chart_points` 现在在最后一根 K 线 close=null 时回退 `meta.regularMarketPrice`（此前"最新价"晚一天，SMCI 实测偏差 8%+）。
 
 ### 数据时效与正确性
 - **1 年时效硬过滤**：`feeds.fetch_feed` 丢弃发布超 365 天的文章（无日期保留）；SEC 文件、反向 13F、财报新闻映射同样按 1 年过滤。超期消息（过气炒作/已落地技术）不再展示。`timeliness.MAX_FRESH_DAYS`。
@@ -194,6 +208,22 @@
 - 未吸收 repo 另三个估值套件（Bayesian 估值 / GF-DMA 健康 / TAM-PEG）——它们需价格历史+分析师预期，留作后续。
 
 验证：新增 6 个离线测试（小盘纯标的高分通过 / 巨头被排除 / 纯叙事被排除 / 取数失败降级 等），全库 162 测试通过 + ruff 干净 + app.js 语法 OK。
+
+### 7.7b Serenity Alpha 独立 section（2026-06-08）
+详情面板太挤——把 Serenity 从候选详情里移出，在顶栏 `简报|机会|**Alpha 猎手**|...` 新增独立视图（`renderSerenity`/`renderSerenityCard`，卡片墙按 verdict+alpha 排序，tab 角标显示"通过筛"数）。`#serenity` 路由 + 搜索过滤。
+
+## 7.8 每日日报自动导出 → Claude 桌面端定时分析（2026-06-08）
+
+目标：雷达每天自动把日报落到固定文件，Claude 桌面端用 schedule 每天读取并用 serenity-alpha 等 skill 分析。
+
+- **日报加 Serenity 区块**（`daily_report.py` 新增"三、Serenity Alpha"section，原 3/4/5 节顺延为 4/5/6）：列出通过筛/探索/排除统计 + 各候选 alpha 分、最弱环节、仓位姿态、排除原因。
+- **`export_daily_report(brief, reports_dir)`**：写三个文件——`reports/latest-daily-report.md`（始终最新）、`reports/daily/YYYY-MM-DD.md`（按日归档）、`reports/latest-daily-report.json`（结构化伴随档，含 top_calls 的 ticker/分数/serenity 字段，供 skill 精确解析；带 "NOT investment advice" 声明）。
+- **自动触发**：`web.run_scan` 末尾调 `_export_daily_report_safe()`，每次扫描（定时或手动）后刷新文件；导出失败只记 `report_export_error`、绝不打断扫描。
+- **独立 cron 兜底**：`cli.py daily --export-dir DIR [--scan]`——`--scan` 先跑一次新扫描再导出，可挂 Windows 任务计划，不依赖 web 服务常驻。
+- `reports/` 已加入 `.gitignore`（生成物）。
+- 用法：保持雷达运行 → Claude 桌面端 schedule 每天读 `C:\Users\Allen\ai-news-radar\reports\latest-daily-report.md`(+`.json`) → 用相关 skill 分析。
+
+验证：新增 3 个测试（Serenity 区块渲染+排序 / 三档文件写出+JSON 结构 / 空 brief 不崩），全库 165 测试通过 + ruff 干净。
 
 ## 8. 剩余 backlog
 
