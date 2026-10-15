@@ -14,9 +14,9 @@ AI News Radar monitors public company, market, and technology sources, then orga
 
 The application runs on your computer. It does not require a hosted account, database, or paid data subscription for its core workflow.
 
-![AI News Radar dashboard using illustrative demo data](docs/assets/dashboard-demo-zh.png)
+![AI News Radar dashboard in English](docs/assets/dashboard-latest-en.png)
 
-*Dashboard preview. The screenshot uses illustrative demo content, not live market data.*
+*Current interface preview. Public-source data may change, be delayed, or be unavailable.*
 
 ## What it does
 

@@ -14,9 +14,9 @@ AI News Radar 持续收集公开的公司、市场和技术信息，并将潜在
 
 应用运行在用户自己的电脑上。核心工作流无需托管账户、数据库或付费数据订阅。
 
-![使用演示数据的 AI News Radar 界面](docs/assets/dashboard-demo-zh.png)
+![AI News Radar 最新版中文界面](docs/assets/dashboard-latest-zh.png)
 
-*界面预览使用示例数据，不代表实时市场数据。*
+*当前界面预览。公开来源数据可能变化、延迟或暂时不可用。*
 
 ## 功能
 
