@@ -5,6 +5,7 @@
 [English](README.md) · [信号模型](docs/signal_model.md) · [产品说明](docs/product_brief.md)
 
 [![CI](https://github.com/SeikiChan/ai-news-radar/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/SeikiChan/ai-news-radar/actions/workflows/ci.yml)
+[![最新版本](https://img.shields.io/github/v/release/SeikiChan/ai-news-radar)](https://github.com/SeikiChan/ai-news-radar/releases/latest)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -92,13 +93,13 @@ ai-news-radar daily --scan --export-dir reports
 PowerShell：
 
 ~~~~powershell
-$env:AI_NEWS_RADAR_USER_AGENT = "AI News Radar/0.2 (contact: you@example.com)"
+$env:AI_NEWS_RADAR_USER_AGENT = "AI News Radar/1.0.0 (contact: you@example.com)"
 ~~~~
 
 macOS 或 Linux：
 
 ~~~~bash
-export AI_NEWS_RADAR_USER_AGENT="AI News Radar/0.2 (contact: you@example.com)"
+export AI_NEWS_RADAR_USER_AGENT="AI News Radar/1.0.0 (contact: you@example.com)"
 ~~~~
 
 免费公开数据源可能限流、延迟或暂时不可用。数据覆盖和新鲜度因来源而异；无法获取的数据会尽可能明确标示。使用结果前请核对原始资料，并遵循数据提供方的使用条款。

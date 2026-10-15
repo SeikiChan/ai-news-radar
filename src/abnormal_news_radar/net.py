@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 #: data is published on the U.S. Eastern calendar, so resolve templates there.
 MARKET_TZ = ZoneInfo("America/New_York")
 
-_DEFAULT_USER_AGENT = "ai-news-radar/0.2 research-tool contact=local@example.com"
+_DEFAULT_USER_AGENT = "ai-news-radar/1.0.0 research-tool contact=local@example.com"
 
 logger = logging.getLogger("ai_news_radar")
 

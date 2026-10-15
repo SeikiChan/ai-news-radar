@@ -5,6 +5,7 @@
 [简体中文](README.zh-CN.md) · [Signal model](docs/signal_model.md) · [Product brief](docs/product_brief.md)
 
 [![CI](https://github.com/SeikiChan/ai-news-radar/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/SeikiChan/ai-news-radar/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/SeikiChan/ai-news-radar)](https://github.com/SeikiChan/ai-news-radar/releases/latest)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -92,13 +93,13 @@ For SEC requests, set a descriptive User-Agent with a real contact address in th
 PowerShell:
 
 ~~~~powershell
-$env:AI_NEWS_RADAR_USER_AGENT = "AI News Radar/0.2 (contact: you@example.com)"
+$env:AI_NEWS_RADAR_USER_AGENT = "AI News Radar/1.0.0 (contact: you@example.com)"
 ~~~~
 
 macOS or Linux:
 
 ~~~~bash
-export AI_NEWS_RADAR_USER_AGENT="AI News Radar/0.2 (contact: you@example.com)"
+export AI_NEWS_RADAR_USER_AGENT="AI News Radar/1.0.0 (contact: you@example.com)"
 ~~~~
 
 Free public endpoints can be rate-limited, delayed, or temporarily unavailable. A missing value is shown as unavailable where possible; source coverage and freshness vary. Review the linked original material and the source provider's terms before relying on any result.

@@ -147,7 +147,7 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
 
 
 class RadarRequestHandler(BaseHTTPRequestHandler):
-    server_version = "AINewsRadar/0.1"
+    server_version = "AINewsRadar/1.0.0"
 
     def _authorized(self) -> bool:
         """HTTP Basic gate. No-op when AUTH_PASSWORD is unset (local use)."""
