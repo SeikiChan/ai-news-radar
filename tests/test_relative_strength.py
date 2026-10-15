@@ -95,6 +95,16 @@ def test_short_history_unavailable():
     fetcher = _fetcher({"CRDO": _chart_payload(_flat(100.0, 10))})
     result = assess_relative_strength("CRDO", fetcher=fetcher, sector_etf="XLK")
     assert result["status"] == "unavailable"
+    assert "10 个交易日" in result["reason"]  # honest count, not a generic 60-day message
+
+
+def test_fetch_failure_distinguished_from_short_history():
+    def rate_limited(_url):
+        raise RuntimeError("HTTP Error 429: Too Many Requests")
+
+    result = assess_relative_strength("ORCL", fetcher=rate_limited, sector_etf="XLK")
+    assert result["status"] == "unavailable"
+    assert "限流" in result["reason"]  # not "历史价格不足"
 
 
 def test_rsi_extremes():

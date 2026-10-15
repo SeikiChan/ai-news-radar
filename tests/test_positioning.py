@@ -92,6 +92,25 @@ def test_all_missing_degrades_to_unavailable(tmp_path):
     assert "不可用" in result["summary_zh"]
 
 
+def test_market_aggregate_sums_all_symbols(tmp_path):
+    from src.abnormal_news_radar.positioning import assess_market_positioning
+
+    days = _trading_days_back(3)
+
+    def fetch(url):
+        import urllib.error
+
+        date = url.rsplit("CNMSshvol", 1)[1].split(".")[0]
+        if date not in days:
+            raise urllib.error.HTTPError(url, 404, "nf", None, None)
+        return _finra_file(date, [("AAA", 600, 1000), ("BBB", 200, 1000)])
+
+    result = assess_market_positioning(fetcher=fetch, cache_dir=tmp_path, lookback_days=3, now=NOW)
+    assert result["status"] == "ok"
+    assert result["latest_ratio"] == 0.4  # (600+200)/(1000+1000)
+    assert "全市场" in result["summary_zh"]
+
+
 def test_symbol_absent_from_files_is_unavailable(tmp_path):
     days = _trading_days_back(3)
     fetcher = _fetcher({d: 0.5 for d in days}, symbol="OTHR")

@@ -1,0 +1,11 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/*.jsonl
+data/finra_short_volume/
+reports/
+*.egg-info/
+.env

@@ -56,7 +56,7 @@ def _fetcher(payload):
     return fetch
 
 
-def test_gex_profile_walls_and_flip(tmp_path):
+def test_gex_profile_peaks_and_no_invalid_flip(tmp_path):
     result = assess_options_structure(
         "TST", fetcher=_fetcher(_payload(_chain())), history_path=tmp_path / "h.jsonl", now=NOW
     )
@@ -65,9 +65,10 @@ def test_gex_profile_walls_and_flip(tmp_path):
     assert gex["status"] == "ok"
     assert gex["call_wall"] == 110.0
     assert gex["put_wall"] == 90.0
-    # cumulative profile starts negative at 90 and crosses zero before 110
-    assert gex["flip_level"] is not None
-    assert 90.0 < gex["flip_level"] <= 110.0
+    # A cumulative zero across strikes is not a hypothetical spot gamma flip.
+    assert gex["flip_level"] is None
+    assert gex["flip_status"] == "not_estimated"
+    assert "假设价格" in gex["flip_reason_zh"]
     assert gex["regime"] in {"positive_gamma", "negative_gamma"}
 
 
@@ -118,8 +119,43 @@ def test_fetch_failure_degrades(tmp_path):
     assert "不在缺数据时伪造" in result["summary_zh"]
 
 
+def test_strike_map_top_oi_and_volume(tmp_path):
+    result = assess_options_structure(
+        "TST", fetcher=_fetcher(_payload(_chain())), history_path=tmp_path / "h.jsonl", now=NOW
+    )
+    strike_map = result["strike_map"]
+    assert strike_map["status"] == "ok"
+    assert strike_map["max_call_oi_strike"] == 110.0  # 4000 OI calls
+    assert strike_map["max_put_oi_strike"] == 90.0  # 3000 OI puts
+    assert strike_map["max_volume_strike"] == 110.0  # 800+20 volume
+    strikes = [row["strike"] for row in strike_map["top_oi"]]
+    assert strikes == sorted(strikes)
+    assert "未平仓量最高" in strike_map["summary_zh"]
+
+
+def test_strike_chart_has_per_strike_gex_and_oi(tmp_path):
+    result = assess_options_structure(
+        "TST", fetcher=_fetcher(_payload(_chain())), history_path=tmp_path / "h.jsonl", now=NOW
+    )
+    chart = result["strike_chart"]
+    assert chart["status"] == "ok"
+    assert chart["spot"] == SPOT
+    strikes = [bar["strike"] for bar in chart["bars"]]
+    assert strikes == sorted(strikes)  # ascending for the ladder
+    by_strike = {bar["strike"]: bar for bar in chart["bars"]}
+    # 110 strike: heavy call OI -> positive net GEX, call OI > put OI.
+    assert by_strike[110.0]["net_gex_usd"] > 0
+    assert by_strike[110.0]["call_oi"] == 4000
+    # 90 strike: heavy put OI -> negative net GEX.
+    assert by_strike[90.0]["net_gex_usd"] < 0
+    assert by_strike[90.0]["put_oi"] == 3000
+    # reference levels ride along for the chart overlay
+    assert chart["call_wall"] == 110.0
+    assert chart["put_wall"] == 90.0
+
+
 def test_honesty_note_present(tmp_path):
     result = assess_options_structure(
         "TST", fetcher=_fetcher(_payload(_chain())), history_path=tmp_path / "h.jsonl", now=NOW
     )
-    assert "不是真实做市商持仓" in result["source_policy_zh"]
+    assert "不代表真实做市商仓位" in result["source_policy_zh"]

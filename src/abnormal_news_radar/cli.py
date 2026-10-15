@@ -103,8 +103,17 @@ def _print_diagnosis(result: dict[str, object]) -> None:
     print("\n触发条件（出现后才升级为可行动）:")
     for trigger in result.get("triggers_zh", []) or []:
         print(f"  - {trigger}")
+    plan = result.get("action_plan") if isinstance(result.get("action_plan"), dict) else {}
+    if plan:
+        print(f"\n行动剧本: {plan.get('stance_zh')}")
+        for level in plan.get("levels", []) or []:
+            print(f"  ${level.get('price')}: {level.get('label_zh')}")
+        for line in plan.get("playbook_zh", []) or []:
+            print(f"  - {line}")
+        print(f"  - {plan.get('market_adjustment_zh')}")
+        print(f"  ({plan.get('disclaimer_zh')})")
     components = result.get("components") if isinstance(result.get("components"), dict) else {}
-    for key in ("relative_strength", "positioning", "options_structure", "vix"):
+    for key in ("market_structure", "relative_strength", "positioning", "options_structure"):
         section = components.get(key) if isinstance(components.get(key), dict) else {}
         summary = section.get("summary_zh")
         if summary:

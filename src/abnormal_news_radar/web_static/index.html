@@ -32,6 +32,7 @@
             <span class="stat-v" id="nextRun" style="font-size:11px">—</span>
           </div>
           <div class="live" id="liveDot"><span class="dot"></span><span id="liveText">LIVE</span></div>
+          <button id="languageToggle" class="language-toggle" type="button" aria-label="切换显示语言" title="切换到 English">🌐 <span>中文</span></button>
         </div>
       </header>
 
@@ -52,7 +53,7 @@
         <h2 id="viewTitle">每日简报</h2>
         <p id="statusLine" role="status">待命</p>
         <button id="exportReport" class="small-action" type="button" title="生成机构级一页纸日报 (Markdown)">⤓ 导出日报</button>
-        <input id="searchBox" type="search" placeholder="筛选 ticker / 公司 / 来源 / 关键词" aria-label="Filter current view">
+        <input id="searchBox" type="search" placeholder="筛选 ticker / 公司 / 来源 / 关键词" aria-label="筛选当前视图">
       </div>
 
       <div id="scanProgress" class="progress" hidden>

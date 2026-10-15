@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
@@ -66,13 +67,16 @@ def find_institutional_holders(
     lookback_days: int = LOOKBACK_DAYS,
     today: date | None = None,
     include_notable: bool = True,
+    progress: object | None = None,
 ) -> dict[str, object]:
     if not issuer_name:
         return {"status": "no_issuer", "holders": []}
     efts = efts_fetcher or _default_efts_fetch
     doc = doc_fetcher or fetch_text
     issuer_key = _normalize(issuer_name)
+    report = progress if callable(progress) else (lambda *_args: None)
 
+    report("全文检索 13F 申报", 0, 0)
     try:
         discovered = _search_managers(issuer_name, efts, lookback_days, today)
     except Exception as exc:  # noqa: BLE001 - degrade cleanly.
@@ -92,10 +96,17 @@ def find_institutional_holders(
     if not managers:
         return {"status": "no_holders", "issuer_name": issuer_name, "holders": []}
 
+    counter = {"done": 0}
+    counter_lock = threading.Lock()
+
     def resolve(manager: dict[str, object]) -> dict[str, object] | None:
         position = _holding_in_filing(manager, issuer_key, doc)
+        with counter_lock:
+            counter["done"] += 1
+            report("解析各机构信息表", counter["done"], len(managers))
         return {**manager, **position} if position is not None else None
 
+    report("解析各机构信息表", 0, len(managers))
     holders: list[dict[str, object]] = []
     workers = max(1, min(MAX_WORKERS, len(managers)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -107,6 +118,24 @@ def find_institutional_holders(
     cutoff = ((today or date.today()) - timedelta(days=365)).isoformat()
     holders = [h for h in holders if not str(h.get("filed") or "") or str(h.get("filed")) >= cutoff]
     holders.sort(key=lambda h: (bool(h.get("notable")), float(h.get("value_usd") or 0)), reverse=True)
+
+    # Quarter-over-quarter change: parse each top holder's *previous* 13F and
+    # diff the shares. Without this the panel only proves "they hold it" — the
+    # decision-relevant fact is whether they added or trimmed last quarter.
+    diff_targets = holders[:MAX_QOQ_DIFFS]
+    if diff_targets:
+        counter["done"] = 0
+        report("对比各机构上一季持仓", 0, len(diff_targets))
+
+        def diff(holder: dict[str, object]) -> None:
+            _attach_qoq_change(holder, issuer_key, doc)
+            with counter_lock:
+                counter["done"] += 1
+                report("对比各机构上一季持仓", counter["done"], len(diff_targets))
+
+        with ThreadPoolExecutor(max_workers=max(1, min(MAX_WORKERS, len(diff_targets)))) as pool:
+            list(pool.map(diff, diff_targets))
+    report("完成", 1, 1)
     return {
         "status": "ok" if holders else "no_holders",
         "issuer_name": issuer_name,
@@ -114,6 +143,72 @@ def find_institutional_holders(
         "summary_zh": _summary_zh(issuer_name, holders),
         "source": "SEC EDGAR 13F-HR (full-text search + curated managers + information table)",
     }
+
+
+#: Holders that get the (expensive) previous-quarter diff: 3 extra requests
+#: each (submissions JSON + index.json + information table XML).
+MAX_QOQ_DIFFS = 12
+
+
+def _attach_qoq_change(holder: dict[str, object], issuer_key: str, doc: object) -> None:
+    """Mutate ``holder`` in place with shares change vs its previous 13F-HR."""
+    try:
+        previous = _previous_13f_location(int(holder["cik"]), str(holder["accession"]), doc)
+    except Exception:  # noqa: BLE001 - the diff is best-effort.
+        previous = None
+    if previous is None:
+        holder["change_label"] = "unknown"
+        holder["change_zh"] = "上一季对比不可用"
+        return
+    prior = _holding_in_filing({**holder, **previous}, issuer_key, doc)
+    shares = holder.get("shares")
+    holder["prev_filed"] = previous.get("filed", "")
+    if prior is None:
+        holder["change_label"] = "new"
+        holder["change_zh"] = "新建仓"
+        holder["prev_shares"] = 0
+        return
+    prev_shares = prior.get("shares")
+    holder["prev_shares"] = prev_shares
+    if not isinstance(shares, int) or not isinstance(prev_shares, int) or prev_shares <= 0:
+        holder["change_label"] = "unknown"
+        holder["change_zh"] = "上一季对比不可用"
+        return
+    change_pct = (shares / prev_shares - 1) * 100
+    holder["change_pct"] = round(change_pct, 1)
+    if change_pct >= 2:
+        holder["change_label"] = "increased"
+        holder["change_zh"] = f"加仓 {change_pct:+.0f}%"
+    elif change_pct <= -2:
+        holder["change_label"] = "reduced"
+        holder["change_zh"] = f"减仓 {change_pct:+.0f}%"
+    else:
+        holder["change_label"] = "unchanged"
+        holder["change_zh"] = "持仓基本不变"
+
+
+def _previous_13f_location(cik: int, current_accession: str, doc: object) -> dict[str, object] | None:
+    """Locate the 13F-HR filed immediately before ``current_accession``."""
+    subs = json.loads(doc(_submissions_url(cik), accept="application/json", timeout=20, max_bytes=8_000_000))  # type: ignore[operator]
+    recent = (subs.get("filings") or {}).get("recent") or {}
+    forms = recent.get("form") or []
+    accessions = recent.get("accessionNumber") or []
+    filed = recent.get("filingDate") or []
+    thirteen_f = [
+        (str(accessions[i]), str(filed[i]) if i < len(filed) else "")
+        for i, form in enumerate(forms)
+        if form == "13F-HR"
+    ]
+    index = next((i for i, (accession, _) in enumerate(thirteen_f) if accession == current_accession), None)
+    if index is None or index + 1 >= len(thirteen_f):
+        return None
+    prev_accession, prev_filed = thirteen_f[index + 1]
+    idx = json.loads(doc(_index_url(cik, prev_accession), accept="application/json", timeout=20, max_bytes=4_000_000))  # type: ignore[operator]
+    files = [str(item.get("name") or "") for item in (idx.get("directory") or {}).get("item") or []]
+    info = _pick_info_table(files)
+    if not info:
+        return None
+    return {"accession": prev_accession, "filename": info, "filed": prev_filed}
 
 
 def _notable_locations(doc: object) -> list[dict[str, object]]:
@@ -233,10 +328,23 @@ def _summary_zh(issuer_name: str, holders: list[dict[str, object]]) -> str:
     if not holders:
         return f"近一季 13F 申报中未检索到持有 {issuer_name} 的机构。"
     top = holders[0]
+    increased = sum(1 for h in holders if h.get("change_label") == "increased")
+    reduced = sum(1 for h in holders if h.get("change_label") == "reduced")
+    new = sum(1 for h in holders if h.get("change_label") == "new")
+    flow_zh = ""
+    if increased or reduced or new:
+        parts = []
+        if new:
+            parts.append(f"{new} 家新建仓")
+        if increased:
+            parts.append(f"{increased} 家加仓")
+        if reduced:
+            parts.append(f"{reduced} 家减仓")
+        flow_zh = f"对比各自上一季：{'、'.join(parts)}。"
     return (
         f"近一季 13F 申报中检索到 {len(holders)} 家机构持有 {issuer_name}；"
-        f"最大持仓：{top.get('manager')}（{_fmt_usd(top.get('value_usd'))}）。"
-        "数据为各机构最近一份 13F-HR，非全市场穷尽，仅供线索。"
+        f"最大持仓：{top.get('manager')}（{_fmt_usd(top.get('value_usd'))}）。{flow_zh}"
+        "数据为各机构最近一份 13F-HR（滞后最多 45 天），非全市场穷尽，仅供线索。"
     )
 
 

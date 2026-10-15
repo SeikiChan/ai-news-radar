@@ -34,6 +34,7 @@ def render_daily_report(brief: dict[str, object], top_n: int = 5, watchlist_n: i
     regime = _dict(brief.get("market_regime"))
     conclusion = _dict(brief.get("market_conclusion_zh"))
     report_items = _list(brief.get("analyst_report"))
+    digest_items = _list(brief.get("digest_items")) if isinstance(brief.get("digest_items"), list) else report_items
     watchlist = _list(brief.get("dynamic_watchlist"))
     earnings = _dict(brief.get("earnings_calendar"))
     gaps = _list(brief.get("data_gaps_zh")) or _list(brief.get("data_gaps"))
@@ -61,7 +62,7 @@ def render_daily_report(brief: dict[str, object], top_n: int = 5, watchlist_n: i
     lines.append(f"## 二、TOP CALLS · 今日最该看（urgent {urgent}）")
     if not report_items:
         lines.append("- 本轮无达到阈值的机会。")
-    for index, item in enumerate(report_items[:top_n], start=1):
+    for index, item in enumerate(digest_items[:top_n], start=1):
         lines.extend(_render_call(index, _dict(item)))
     lines.append("")
 
@@ -172,7 +173,7 @@ def export_daily_report(brief: dict[str, object], reports_dir: str | Path, top_n
 def _structured_payload(brief: dict[str, object], today: str) -> dict[str, object]:
     counts = _dict(brief.get("counts"))
     regime = _dict(brief.get("market_regime"))
-    items = _list(brief.get("analyst_report"))
+    items = _list(brief.get("digest_items")) if isinstance(brief.get("digest_items"), list) else _list(brief.get("analyst_report"))
 
     def _call(item: object) -> dict[str, object]:
         item = _dict(item)
@@ -191,6 +192,8 @@ def _structured_payload(brief: dict[str, object], today: str) -> dict[str, objec
                 "link": article.get("link"),
                 "published": article.get("published"),
             },
+            "related_update_count": item.get("related_update_count", 0),
+            "related_updates": [_dict(row) for row in _list(item.get("related_updates"))],
             "serenity_alpha": {
                 "alpha_score": sa.get("alpha_score"),
                 "verdict": sa.get("verdict"),
@@ -260,6 +263,16 @@ def _render_call(index: int, item: dict[str, object]) -> list[str]:
     link = str(article.get("link") or "")
     source = str(article.get("source") or "")
     lines.append(f"   - 催化剂：{source} · {title}" + (f"  <{link}>" if link else ""))
+    related_count = int(item.get("related_update_count") or 0)
+    if related_count:
+        lines.append(f"   - 同公司另有 {related_count} 条更新；以下为其他来源/事件，需分别核实：")
+        for related in _list(item.get("related_updates")):
+            update = _dict(related)
+            update_link = str(update.get("link") or "")
+            lines.append(
+                f"     - {update.get('source') or '来源未标注'} · {update.get('title') or '标题未标注'}"
+                + (f"  <{update_link}>" if update_link else "")
+            )
     return lines
 
 

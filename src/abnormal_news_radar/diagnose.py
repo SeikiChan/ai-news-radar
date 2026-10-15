@@ -20,10 +20,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote
 
 from .gamma import assess_options_structure
-from .net import fetch_text
+from .market_structure import assess_market_structure, vix_context
 from .positioning import assess_positioning
 from .relative_strength import assess_relative_strength
 from .short_interest import fetch_short_percent_of_float
@@ -33,7 +32,6 @@ from .yahoo import make_yahoo_fetcher
 logger = logging.getLogger("ai_news_radar")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-VIX_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=3mo&interval=1d"
 
 #: A mispricing thesis needs an actual drawdown first.
 MIN_DRAWDOWN_52W_PCT = -15.0
@@ -56,6 +54,7 @@ def diagnose_ticker(
     yahoo_fetcher: object | None = None,
     data_dir: Path | None = None,
     now: datetime | None = None,
+    market_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
     symbol = ticker.strip().upper()
     if not symbol:
@@ -68,16 +67,26 @@ def diagnose_ticker(
         symbol, fetcher=cboe_fetcher, history_path=data / "options_structure_history.jsonl", now=now
     )
     short_interest = _short_interest(symbol, yahoo_fetcher)
-    vix = _vix_context(chart_fetcher)
+    market = market_context if market_context is not None else assess_market_structure(
+        cboe_fetcher=cboe_fetcher,
+        finra_fetcher=finra_fetcher,
+        chart_fetcher=chart_fetcher,
+        data_dir=data,
+        now=now,
+    )
+    vix = market.get("vix") if isinstance(market.get("vix"), dict) else vix_context(chart_fetcher)
     news = _radar_news_hits(symbol, data, now=now)
 
     if relative.get("status") != "ok":
+        reason = str(relative.get("reason") or "")
+        retryable = "限流" in reason or "网络" in reason or "不可用" in reason
         return {
             "status": "insufficient_data",
             "ticker": symbol,
-            "reason": relative.get("reason"),
-            "summary_zh": f"{symbol} 无法诊断：{relative.get('reason')}。",
-            "components": _components(relative, positioning, options, short_interest, vix, news),
+            "reason": reason,
+            "retryable": retryable,
+            "summary_zh": f"{symbol} 暂时无法诊断：{reason}。" + ("点「诊断」重试即可。" if retryable else ""),
+            "components": _components(relative, positioning, options, short_interest, vix, news, market),
         }
 
     trend = relative.get("trend") if isinstance(relative.get("trend"), dict) else {}
@@ -89,6 +98,7 @@ def diagnose_ticker(
         triggers = [f"等待错杀前提出现（距52周高点 ≤ {MIN_DRAWDOWN_52W_PCT}% 或 20日跌幅 ≤ {MIN_DROP_20D_PCT}%）后再诊断"]
     verdict_key, verdict_zh = _verdict(scored["total"], premise)
     gaps = _data_gaps(positioning, options, short_interest, vix, news)
+    action_plan = _action_plan(symbol, premise, verdict_key, relative, positioning, options, market)
 
     result = {
         "status": "ok",
@@ -100,9 +110,10 @@ def diagnose_ticker(
         "verdict": verdict_key,
         "verdict_zh": verdict_zh,
         "triggers_zh": triggers,
+        "action_plan": action_plan,
         "data_gaps": gaps,
         "summary_zh": _summary_zh(symbol, scored["total"], verdict_zh, premise, gaps),
-        "components": _components(relative, positioning, options, short_interest, vix, news),
+        "components": _components(relative, positioning, options, short_interest, vix, news, market),
         "method_zh": (
             "错杀分为透明规则打分：跌幅归因(25) + 卖压衰竭(20) + 空头行为(20) + 期权结构(20) + 基本面证据(15)。"
             "分数只回答「结构是否支持错杀假设」，行动必须等触发条件出现。每次诊断会存档，用 report 机制回测命中率。"
@@ -231,24 +242,15 @@ def _options_points(options: dict[str, object]) -> dict[str, object]:
     points = 0
     reasons = []
     if str(gex.get("regime") or "") == "positive_gamma":
-        points += 8
-        reasons.append("正gamma区，做市商对冲会压制波动")
+        reasons.append("OI 符号模型估算净 GEX 为正；未观测实际做市商方向，不计入方向分")
     else:
-        reasons.append("负gamma区，波动会被对冲放大——更适合等右侧")
+        reasons.append("OI 符号模型估算净 GEX 为负；未观测实际做市商方向，不计入方向分")
     if term.get("status") == "ok" and term.get("inverted"):
         points += 7
-        reasons.append("IV 期限倒挂，恐慌已在期权价格里（情绪洗出特征）")
+        reasons.append("近月 ATM IV 高于远月，短期期权隐含波动率较高；需结合事件日历解释")
     oi_ratio = _to_float(pc.get("oi_ratio"))
     if oi_ratio is not None:
-        if oi_ratio >= 1.3:
-            points += 5
-            reasons.append(f"P/C 持仓比 {oi_ratio}：对冲/看空仓位极重，反向洗出条件具备")
-        elif oi_ratio <= 0.7:
-            points += 2
-            reasons.append(f"P/C 持仓比 {oi_ratio}：仓位仍偏多，未经历恐慌出清")
-        else:
-            points += 3
-            reasons.append(f"P/C 持仓比 {oi_ratio}：中性")
+        reasons.append(f"P/C OI={oi_ratio} 仅表示未平仓合约数量比例；不能推断多空方向，不计分")
     return {"name": "期权结构", "max": 20, "points": min(20, points), "reason_zh": "；".join(reasons)}
 
 
@@ -279,10 +281,6 @@ def _triggers(
     attribution = relative.get("attribution") if isinstance(relative.get("attribution"), dict) else {}
     if str(positioning.get("trend") or "") == "rising":
         triggers.append("FINRA 卖空成交占比连续 3 日回落（空头停止施压）")
-    gex = options.get("gex") if isinstance(options.get("gex"), dict) else {}
-    flip = _to_float(gex.get("flip_level"))
-    if flip is not None and str(gex.get("regime") or "") == "negative_gamma":
-        triggers.append(f"收盘收复 gamma 翻转位 ${flip}（重回正gamma区）")
     if str(trend.get("selling_exhaustion") or "") == "active_selling":
         triggers.append("出现缩量企稳日或放量长下影线（卖压衰竭信号）")
     if str(attribution.get("verdict") or "") == "idiosyncratic":
@@ -293,6 +291,83 @@ def _triggers(
     if sma20 is not None and _to_float(trend.get("price")) is not None and float(trend["price"]) < sma20:
         triggers.append(f"站回 20 日均线 ${sma20}")
     return triggers or ["无单一缺失项；以错杀分是否达到 70（错杀候选线）和仓位纪律决定是否分批行动"]
+
+
+def _action_plan(
+    symbol: str,
+    premise: dict[str, object],
+    verdict: str,
+    relative: dict[str, object],
+    positioning: dict[str, object],
+    options: dict[str, object],
+    market: dict[str, object],
+) -> dict[str, object]:
+    """Concrete levels and condition->action lines — the "now what" layer.
+
+    The 20DMA is a trend reference. Option-chain concentration levels are
+    displayed as context only; OI does not reveal direction and is not used as
+    support, resistance, entry, target, or invalidation. This is a research
+    framework, not a trade instruction.
+    """
+    trend = relative.get("trend") if isinstance(relative.get("trend"), dict) else {}
+    gex = options.get("gex") if isinstance(options.get("gex"), dict) else {}
+    strike_map = options.get("strike_map") if isinstance(options.get("strike_map"), dict) else {}
+    put_wall = _to_float(gex.get("put_wall"))
+    call_wall = _to_float(gex.get("call_wall"))
+    sma20 = _to_float(trend.get("sma20"))
+    max_volume_strike = _to_float(strike_map.get("max_volume_strike"))
+
+    stance, stance_zh = {
+        "mispriced_candidate": ("plan_entry", "结构支持错杀假设：可以制定分批买入计划，按下方触发执行"),
+        "watchlist": ("watch", "挂入观察池：结构部分支持，出现触发信号前不动手"),
+        "high_risk_or_unproven": ("stand_aside", "暂不参与：先证伪「真实恶化」，证据改善前只跟踪"),
+        "no_mispricing_premise": ("stand_aside", "不参与：没有明显回撤，错杀前提不成立"),
+    }.get(verdict, ("stand_aside", "暂不参与"))
+
+    levels = []
+    if put_wall is not None:
+        levels.append({"price": put_wall, "label_zh": "Put-side GEX 峰值：OI 符号模型参考，不代表支撑位"})
+    if sma20 is not None:
+        levels.append({"price": sma20, "label_zh": "20 日均线：短期趋势分界"})
+    if call_wall is not None:
+        levels.append({"price": call_wall, "label_zh": "Call-side GEX 峰值：OI 符号模型参考，不代表阻力位"})
+    if max_volume_strike is not None and all(abs(max_volume_strike - float(level["price"])) > 0.01 for level in levels):
+        levels.append({"price": max_volume_strike, "label_zh": "当日期权成交量集中位：成交量不区分买卖方向"})
+    levels.sort(key=lambda level: float(level["price"]))
+
+    playbook = []
+    if stance == "stand_aside":
+        playbook.append("当前不满足买入研究条件；只跟踪触发条件变化，不做价格预设。")
+    else:
+        entry_conditions = []
+        if str(positioning.get("trend") or "") == "rising":
+            entry_conditions.append("FINRA 卖空占比连续 3 日回落")
+        if str(trend.get("selling_exhaustion") or "") == "active_selling":
+            entry_conditions.append("出现缩量企稳日")
+        if entry_conditions:
+            playbook.append(f"买入触发：{'，且'.join(entry_conditions)} → 首仓不超过计划仓位的 1/3，留出加仓空间。")
+        else:
+            playbook.append("买入触发已基本满足 → 分批建仓（首仓 ≤ 1/3），不追单日大阳线。")
+
+    posture = str(market.get("posture") or "unknown")
+    market_adjustment_zh = {
+        "hostile": "大盘调整：OI 符号模型的净 GEX 估算偏负或卖空成交占比上升；环境标签只是结构代理，买入触发需连续 2 个收盘确认。",
+        "friendly": "大盘调整：结构代理指标偏友好（OI 符号模型净 GEX 偏正且卖空占比回落）；仍按标准纪律执行。",
+        "neutral": "大盘调整：大盘环境中性——按标准触发条件执行。",
+        "unknown": "大盘调整：大盘数据不可用——按保守（hostile）标准执行。",
+    }[posture if posture in {"hostile", "friendly", "neutral"} else "unknown"]
+
+    return {
+        "stance": stance,
+        "stance_zh": stance_zh,
+        "levels": levels,
+        "playbook_zh": playbook,
+        "market_adjustment_zh": market_adjustment_zh,
+        "disclaimer_zh": (
+            "本剧本是基于公开数据结构的研究框架，不是投资指令；"
+            "点位来自期权未平仓分布与均线，会随持仓变化每日移动，执行前需重新诊断确认。"
+        ),
+    }
 
 
 def _verdict(total: int, premise: dict[str, object]) -> tuple[str, str]:
@@ -340,29 +415,6 @@ def _short_interest(symbol: str, yahoo_fetcher: object | None) -> dict[str, obje
         return fetch_short_percent_of_float(symbol, fetch)
     except Exception as exc:  # noqa: BLE001
         return {"status": "unavailable", "ticker": symbol, "reason": str(exc)[:160]}
-
-
-def _vix_context(chart_fetcher: object | None) -> dict[str, object]:
-    fetch = chart_fetcher or _fetch_text
-    url = VIX_CHART_URL.format(symbol=quote("^VIX"))
-    try:
-        payload = json.loads(fetch(url))  # type: ignore[operator]
-        result = (payload.get("chart", {}).get("result") or [None])[0]
-        closes = [float(v) for v in (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or [] if v]
-    except Exception as exc:  # noqa: BLE001
-        return {"status": "unavailable", "reason": str(exc)[:160]}
-    if len(closes) < 20:
-        return {"status": "unavailable", "reason": "VIX 历史不足"}
-    latest = closes[-1]
-    avg_60d = sum(closes) / len(closes)
-    regime = "fear" if latest >= 25 else "elevated" if latest >= 20 else "calm"
-    return {
-        "status": "ok",
-        "vix": round(latest, 2),
-        "avg_3mo": round(avg_60d, 2),
-        "regime": regime,
-        "summary_zh": f"VIX={latest:.1f}（3个月均值 {avg_60d:.1f}），市场恐惧状态：{ {'fear': '恐慌', 'elevated': '偏紧', 'calm': '平静'}[regime] }。",
-    }
 
 
 def _radar_news_hits(symbol: str, data_dir: Path, now: datetime | None = None) -> dict[str, object]:
@@ -429,6 +481,7 @@ def _components(
     short_interest: dict[str, object],
     vix: dict[str, object],
     news: dict[str, object],
+    market: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "relative_strength": relative,
@@ -437,6 +490,7 @@ def _components(
         "short_interest": short_interest,
         "vix": vix,
         "radar_news": news,
+        "market_structure": market or {"status": "unavailable"},
     }
 
 
@@ -447,7 +501,3 @@ def _to_float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _fetch_text(url: str) -> str:
-    return fetch_text(url, accept="application/json", timeout=15)

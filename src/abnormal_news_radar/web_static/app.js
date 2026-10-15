@@ -14,8 +14,188 @@ const state = {
   calendar: { month: currentMonthIso(), items: [], summary: "", loaded: false, loading: false },
   financials: {},
   holders: {},
+  holdersProgress: {},
+  optionsStructure: {},
+  marketStructure: null,
+  gammaChart: { index: "SPY", metric: "net_gex" },
   diagnose: { ticker: "", loading: false, result: null, error: "" },
 };
+
+const LANGUAGE_STORAGE_KEY = "ai-news-radar-language";
+let locale = "zh-CN";
+try {
+  locale = window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === "en" ? "en" : "zh-CN";
+} catch {
+  // A restricted browser storage context should not prevent the app from loading.
+}
+
+// Localize interface labels and known templates. Article titles, source names,
+// and free-form analyst narratives stay in their collected language.
+const UI_TRANSLATIONS = [
+  ["AI News Radar | 研究终端", "AI News Radar | Research Terminal"],
+  ["切换显示语言", "Switch interface language"], ["切换到 English", "Switch to 中文"],
+  ["POSTURE 宏观", "POSTURE"], ["URGENT 立即研究", "URGENT"], ["CANDIDATES 候选", "CANDIDATES"], ["ARTICLES 文章", "ARTICLES"], ["NEXT SCAN 下次", "NEXT SCAN"],
+  ["简报 Brief", "Brief"], ["机会 Ideas", "Ideas"], ["Alpha 猎手", "Alpha"], ["诊断 Diagnose", "Diagnose"], ["观察池", "Watchlist"], ["财报", "Earnings"], ["技术", "Technology"], ["宏观", "Market"], ["过程", "Process"], ["来源", "Sources"],
+  ["每日简报", "Daily Brief"], ["机会清单", "Opportunity List"], ["Serenity Alpha · 小而纯受益者", "Serenity Alpha · Focused Beneficiaries"], ["个股诊断 · 错杀分析", "Stock Diagnosis · Mispricing"], ["动态观察池", "Watchlist"], ["财报工作台", "Earnings Workspace"], ["技术前沿", "Technology Frontier"], ["宏观状态", "Market Regime"], ["扫描过程", "Scan Process"], ["来源与种子名单", "Sources & Seed List"], ["研究终端", "Research Terminal"],
+  ["待命", "Ready"], ["加载中", "Loading"], ["加载失败", "Load failed"], ["连接中断，等待自动重连", "Connection interrupted; waiting to reconnect"], ["等待排程", "Waiting for schedule"],
+  ["导出日报", "Export Daily Report"], ["⤓ 导出日报", "⤓ Export Daily Report"], ["生成机构级一页纸日报 (Markdown)", "Export a one-page institutional brief (Markdown)"], ["筛选 ticker / 公司 / 来源 / 关键词", "Filter ticker / company / source / keyword"], ["筛选当前视图", "Filter current view"],
+  ["RISK-ON 偏进攻", "RISK-ON · Risk seeking"], ["RISK-OFF 防守", "RISK-OFF · Defensive"], ["NEUTRAL 中性", "NEUTRAL"], ["未连接", "Disconnected"], ["OFFLINE", "OFFLINE"], ["LIVE", "LIVE"],
+  ["简报还没有加载。", "The brief has not loaded yet."], ["今日宏观结论", "Today's Market Take"], ["系统暂未形成明确宏观结论。", "No clear market conclusion is available yet."], ["TOP CALL · 今日最该看", "TOP CALL · Highest-priority idea today"], ["重点机会", "Key Opportunities"], ["按动作优先级 + 分数排序。绿=已被证据/市场确认，红=负向或需先解释，灰=暂无数据。点行展开详情。", "Sorted by action priority and score. Green = confirmed by evidence or market action; red = negative or needs explanation; gray = no data. Select a row for details."], ["查看全部 →", "View all →"], ["财报重点", "Earnings Focus"], ["未来窗口暂无重点财报。", "No notable earnings in the upcoming window."], ["财报工作台 →", "Earnings workspace →"], ["近 14 天技术路线与供应链信号，按发布时间倒序", "Technology and supply-chain signals from the past 14 days, newest first"], ["技术工作台 →", "Technology workspace →"], ["近 14 天暂无有明确发布时间的技术路线文章；历史线索仍可在机会页查看。", "No recent technology articles with a clear publication date. Older items remain searchable on the Ideas page."], ["证据缺口", "Evidence Gaps"], ["系统下一轮要补的证据，不是交给你的待办。", "Evidence the system will seek in its next scan."], ["当前没有关键缺口。", "No critical gaps at this time."],
+  ["本轮自动报告暂无达到阈值的机会。", "No opportunities met the threshold in this scan."], ["机会清单 · ", "Opportunity List · "], [" 项", " items"], ["点任意行展开完整证据、分析判断与缺口。", "Select a row to review the evidence, analysis, and gaps."], ["暂无达到阈值的机会。", "No opportunities met the threshold."], ["动作", "Action"], ["公司", "Company"], ["分数", "Score"], ["置信", "Confidence"], ["市场", "Market"], ["影响", "Impact"], ["期权", "Options"], ["预期", "Expectations"], ["催化剂", "Catalyst"], ["市场确认", "Market confirmation"], ["财务影响", "Financial impact"], ["SEC 财务", "SEC financials"], ["期权流", "Options flow"], ["预期差", "Expectations gap"], ["证据层 ", "Evidence tier "], ["还缺", "Missing"], ["错杀诊断 →", "Mispricing diagnosis →"], ["立即研究", "Research now"], ["跟踪", "Track"], ["待识别", "Identify"], ["观察", "Watch"],
+  ["动态观察池还没有足够证据。", "The watchlist does not have enough evidence yet."], ["信念", "Conviction"], ["ticker待确认", "ticker pending"],
+  ["财报日历 · 被选中公司", "Earnings Calendar · Selected Company"], ["财报详情", "Earnings Details"], ["核心财务指标、资金投向、提到的公司/产业链对象，以及二阶 read-through。", "Key financials, capital allocation, named companies and supply-chain references, plus second-order read-through."], ["本月", "This month"], ["个观察标的财报", " tracked earnings events"], ["加载中…", "Loading…"], ["点公司查看详情；用 ◀ ▶ 翻月浏览整个季度。", "Select a company for details. Use ◀ ▶ to browse the quarter."], ["上个月", "Previous month"], ["下个月", "Next month"], ["盘前", "Pre-market"], ["盘后", "After-hours"], ["盘中", "During market"], ["未来窗口内暂无重点财报。", "No notable earnings in the upcoming window."], ["已有原文拆解", "Source analysis available"], ["等待财报原文", "Waiting for earnings release"], ["没有可展示的财报事件。", "No earnings events to display."], ["数据不足", "Insufficient data"], ["查看期权结构（CBOE 全链 · GEX / IV / P-C）", "View options structure (CBOE chain · GEX / IV / P-C)"], ["Gamma 翻转位", "Gamma flip level"], ["期权怎么看这只股（CBOE 延迟全链）", "Options view (delayed CBOE chain)"], ["查看 13F 机构持仓（联网检索 SEC，较慢）", "View institutional 13F holdings (SEC lookup; slower)"],
+  ["技术前沿任务", "Technology Frontier"], ["近 14 天文章按发布时间倒序；无发布时间的来源只保留最近 3 天首次抓取的条目。", "Articles from the past 14 days, newest first. Undated sources show only items first collected in the past 3 days."], ["近 14 天暂无明确技术路线文章。", "No clear technology-route articles from the past 14 days."], ["查看下游公司验证状态", "View downstream company validation"], ["查看技术证据与验证要点", "View technology evidence and validation"], ["技术路线", "Technology route"], ["关联公司", "Related companies"], ["技术来源命中", "Technology source match"],
+  ["输入 ticker，回答一个问题：这只股是被错杀，还是真的坏了？", "Enter a ticker: is the stock mispriced, or are its fundamentals deteriorating?"], ["例如 CRDO / SMCI / MU", "e.g. CRDO / SMCI / MU"], ["诊断", "Diagnose"], ["数据源：FINRA 日度卖空、CBOE 延迟期权链（含希腊值）、Yahoo 价格、本地雷达新闻命中。全部免费公开数据，缺数据时明示，不伪造。", "Sources: FINRA daily short-sale data, delayed CBOE options chain (including Greeks), Yahoo prices, and local news matches. Public data only; missing data is disclosed."], ["诊断失败：", "Diagnosis failed: "], ["数据不足，无法诊断。", "Insufficient data for a diagnosis."], ["先诊断一只你怀疑被错杀的股票。诊断结论会自动存档，未来用 report 机制回测命中率。", "Diagnose a stock you suspect is mispriced. Results are saved for future evaluation."], ["大盘环境", "Market Context"], ["行动剧本", "Action Plan"], ["期权未平仓分布", "Open Interest Distribution"], ["call 未平仓", "Call open interest"], ["put 未平仓", "Put open interest"], ["各维度读数", "Factor Readings"], ["评分构成", "Score Breakdown"], ["触发条件", "Triggers"], ["宏观状态还没有加载。", "Market data has not loaded yet."],
+  ["结构读数", "Structure Readings"], ["暂无结构读数。", "No structure readings."], ["来源与假设", "Sources & Assumptions"], ["本次结构快照：", "Structure snapshot: "], ["大盘 Gamma 分布（按 strike）", "Market Gamma by Strike"], ["未平仓 OI", "Open Interest (OI)"], ["现价", "Spot"], ["净 GEX 估算", "Estimated net GEX"], ["Call GEX 峰值", "Call GEX peak"], ["Put GEX 峰值", "Put GEX peak"], ["源时间", "Source time"], ["源时间不可用", "Source time unavailable"], ["宏观状态还没有加载。", "Market data has not loaded yet."], ["暂无宏观指标。", "No macro indicators."], ["政策/宏观事件", "Policy / Macro Events"], ["用于解释市场背景，不直接替代个股研究。", "Provides market context; does not replace company research."], ["暂无宏观事件。", "No macro events."],
+  ["净 GEX 估算 −", "Estimated net GEX −"], ["净 GEX 估算 +", "Estimated net GEX +"], ["Call GEX 峰", "Call GEX peak"], ["Put GEX 峰", "Put GEX peak"], ["服务端未提供快照时间，当前数值的新鲜度无法确认", "The server did not provide a snapshot timestamp, so data freshness cannot be confirmed"], ["CBOE 源时间见下方图表", "CBOE source time is shown in the chart below"], ["条形显示现价下的净 GEX 估算：calls 正、puts 负是模型假设，不是真实做市商仓位。 CBOE 报价有延迟；上方源时间不代表 OI 的更新时间。翻转位需要按假设价格重新估算整条期权链，本页暂不显示。", "Bars show estimated net GEX at spot. Positive calls and negative puts are model assumptions, not actual dealer positions. CBOE quotes are delayed, and the source timestamp does not indicate when OI was updated. A gamma flip requires repricing the full chain at assumed spot prices, so it is not shown here."], ["CBOE 提供延迟期权链。未平仓量（OI）不显示买卖方；这里用 calls 正、puts 负估算 GEX，只是结构代理，不代表真实做市商仓位。Call/put GEX 峰值不是支撑或阻力。FINRA 卖空成交占比也不代表暗池净买卖方向。", "CBOE provides a delayed options chain. Open interest (OI) does not identify buyers or sellers. This page estimates GEX with positive calls and negative puts as a structural proxy, not actual dealer positioning. Call/put GEX peaks are not support or resistance. FINRA short-sale volume is not dark-pool net buying or selling."], ["能源政策会影响通胀、工业成本和电力基础设施。", "Energy policy can affect inflation, industrial costs, and power infrastructure."], ["AI 政策会影响算力、云、软件、监管和能源需求。", "AI policy can affect compute, cloud, software, regulation, and energy demand."], ["政策源事件：保留原文链接，等待主题匹配。", "Policy source event; awaiting a matching research theme. See the original source."],
+  ["扫描过程", "Scan Process"], ["本轮来源分布", "Source Mix · Current Scan"], ["本服务会话还没有完成扫描。", "No scan has completed in this session."], ["暂无扫描过程。", "No scan activity to show."], ["来源=", "Source: "], ["信任权重=", "Trust: "], ["新鲜度=", "Freshness: "], ["时间权重=", "Time weight: "], ["发布时间=", "Published: "],
+  ["没有配置来源。", "No sources configured."], ["种子关键词库", "Seed Keyword Library"], ["不是最终观察池", "Not the final watchlist"], ["查看", "View"], ["个种子标的", " seed tickers"], ["没有配置种子标的。", "No seed tickers configured."], ["本轮暂无候选可做 Serenity Alpha 评估（需先完成一次扫描）。", "No candidates are available for Serenity Alpha yet. Run a scan first."], ["个候选", " candidates"], ["新闻 → 小而纯、被错误分类、对该需求高弹性的受益者。五维乘法分（任一维近 0 即归零），外加排除规则与 1–4 季验证链。这是只读第二视角，不改主排序。", "Find focused, under-recognized beneficiaries with high demand sensitivity. A five-factor multiplicative score, exclusion rules, and a 1–4 quarter validation chain provide a read-only second view."], ["通过筛", "Qualified"], ["探索级", "Exploratory"], ["被排除", "Excluded"], ["仓位姿态：", "Positioning: "], ["验证链（1–4 季内证实 / 证伪）", "Validation Chain (confirm or reject within 1–4 quarters)"], ["利润表", "Income Statement"], ["需求 / 现金流", "Demand / Cash Flow"], ["经营杠杆", "Operating Leverage"], ["市场侧印证", "Market Validation"], ["通过 Serenity 筛", "Passed Serenity screen"], ["仅探索级", "Exploratory only"], ["分 ", "Score "],
+  ["来源未标注", "Source not labeled"], ["标题未标注", "Title not labeled"], ["待确认", "Pending"], ["可能是不同事件，请分别核实", "May be separate events; verify individually"], ["较标题新增硬证据：", "New hard evidence beyond the headline: "], ["摘录：", "Excerpt: "], ["打开 PDF ↗", "Open PDF ↗"], ["机构持仓流向（13F 派生 · 聪明钱）", "Institutional Positioning (13F-derived)"], ["空头轧空潜力（美股制度型筹码因子）", "Short Squeeze Potential"], ["财务体检（防诈骗 / 防基数幻觉）", "Financial Health Check"], ["全文解析（PDF · pypdf）", "Full-text Analysis (PDF · pypdf)"], ["全文证据层", "Full-text evidence tier"], ["全文分", "Full-text score"], ["高风险", "High risk"], ["需谨慎", "Caution"], ["通过", "Pass"], ["数据不足", "Insufficient data"], ["未体检", "Not checked"], ["市场 ", "Market "], ["影响 ", "Impact "], ["SEC ", "SEC "], ["期权 ", "Options "], ["预期 ", "Expectations "],
+  ["来源：", "Source: "], ["日期=", "Date: "], ["时间=", "Time: "], ["季度=", "Quarter: "], ["原文：", "Source text: "], ["核心财务（SEC 实际披露）", "Key Financials (SEC filings)"], ["最新 SEC 文件（EDGAR 实际申报 · 权威原文）", "Latest SEC Filings (EDGAR · Primary Source)"], ["打开 ↗", "Open ↗"], ["年度报告", "Annual Report"], ["季度报告", "Quarterly Report"], ["重大事件 / 业绩公告", "Current Report / Earnings Release"], ["外国公司年报", "Foreign Issuer Annual Report"], ["外国公司中期报告", "Foreign Issuer Interim Report"], ["最新 SEC 文件", "Latest SEC Filing"], ["钱花在哪里", "Capital Allocation"], ["研发投入", "R&D"], ["资本开支", "CapEx"], ["销售/管理费用", "SG&A"], ["股票回购", "Share Buybacks"], ["现金分红", "Dividends"], ["并购支出", "Acquisitions"],
+  ["证据", "Evidence"], ["未知", "Unknown"], ["无", "None"], ["部分", "Partial"], ["缺失", "Missing"], ["早期", "Early"], ["仅价", "Price only"], ["已延伸", "Extended"], ["未确认", "Unconfirmed"], ["负向", "Negative"], ["无数据", "No data"], ["未验", "Unverified"], ["同向", "Supportive"], ["反向", "Bearish"], ["冲突", "Conflicting"], ["混合", "Mixed"], ["未计价", "Not priced in"], ["待查", "Needs review"], ["已计价", "Priced in"], ["负背离", "Negative divergence"], ["确认", "Confirmed"], ["净加仓（吸筹）", "Net accumulation"], ["净减仓（派发）", "Net distribution"], ["增减分化", "Mixed flows"], ["基本稳定", "Stable"], ["风险偏好", "Risk-on"], ["风险防御", "Risk-off"], ["中性", "Neutral"], ["无tkr", "No ticker"], ["宏观结论", "Macro Conclusion"], ["平静", "Calm"],
+];
+
+const UI_TRANSLATION_LOOKUP = new Map(UI_TRANSLATIONS.flatMap(([zh, en]) => [[zh, { "zh-CN": zh, en }], [en, { "zh-CN": zh, en }]]));
+const UI_TRANSLATION_FRAGMENTS = [
+  ["净 GEX 估算 −", "Estimated net GEX −"], ["净 GEX 估算 +", "Estimated net GEX +"],
+  ["净 GEX 估算为正", "Estimated net GEX is positive"], ["净 GEX 估算为负", "Estimated net GEX is negative"],
+  ["OI 模型净 GEX 为正", "OI-model net GEX is positive"], ["OI 模型净 GEX 为负", "OI-model net GEX is negative"],
+  ["本次结构快照：", "Structure snapshot: "], ["服务端未提供快照时间，当前数值的新鲜度无法确认", "The server did not provide a snapshot timestamp, so data freshness cannot be confirmed"], ["CBOE 源时间见下方图表", "CBOE source time is shown in the chart below"],
+  [" / 标的变动 1%", " / per 1% underlying move"], ["标的变动 1%", "underlying move 1%"], ["期权 Gamma 暴露（按 strike）", "Options Gamma Exposure by Strike"], ["Call GEX 峰", "Call GEX peak"], ["Put GEX 峰", "Put GEX peak"],
+  ["空压↑", "Short pressure ↑"], ["空压↓", "Short pressure ↓"], ["空压平", "Short pressure flat"], ["全市场卖空", "Market-wide short volume"], ["大盘环境中性：", "Market regime: neutral: "], ["信号混杂，按标准触发条件执行。", "Mixed signals. Follow standard trigger criteria."], ["平静。", "Calm."],
+  ["回撤前提成立", "Drawdown premise met"], ["无明显回撤", "No material drawdown"], ["缺失:", "Missing:"], ["时间待确认", "Time pending"], ["今日重点", "Today's focus"], ["检测到财报/指引相关语言，但 RSS 摘要中缺少足够数字，需打开原文或 8-K。", "Earnings or guidance language detected, but the RSS summary lacks enough figures. Open the original release or 8-K."],
+  ["识别到技术路线图/研究信号：", "Technology route or research signal detected: "], ["技术来源命中，但暂未识别明确技术主题；强度=", "Technology source matched, but no specific theme was identified; strength: "], ["强度=", "Strength: "], ["二阶公司=", "Second-order companies: "], ["AI 工厂/机柜级架构", "AI factory / rack-scale architecture"], ["供电/散热", "Power / thermal management"], ["光互连", "Optical interconnect"], ["推理优化", "Inference optimization"], ["定制芯片", "Custom silicon"], ["机器人/边缘 AI", "Robotics / edge AI"], ["800V HVDC 供电", "800V HVDC power"],
+  ["还没有候选标的获得正向价格/成交量确认。", "No candidates have positive price/volume confirmation."], ["目前没有候选标的强到进入快速建模队列。", "No candidates are strong enough for the fast modeling queue."], ["目前没有候选标的进入 Quick Model 工作流。", "No candidates entered the Quick Model workflow."], ["目前没有候选标的通过“早期预期差”筛选。", "No candidates passed the early expectations-gap screen."], ["部分新闻发现的公司在 SEC 名称匹配后仍未确认 ticker/交易所。", "Some companies found in news still lack a confirmed ticker or exchange after SEC name matching."], ["宏观状态源当前降级或不可用，市场背景评分可能不完整。", "Macro data sources are degraded or unavailable; market context scores may be incomplete."],
+  ["部分降级", "Partially degraded"], ["宏观环境中性", "Macro regime: Neutral"], ["维持默认证据门槛，重点看公司新闻是否足够硬、是否被市场确认。", "Keep the default evidence threshold. Prioritize strong company news confirmed by market action."],
+  ["📄 全文已读", "📄 Full text reviewed"], ["来源未提供摘要，点击原文。", "No summary was provided; open the original source."], ["重要性", "Importance"],
+];
+
+function localizedText(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  const entry = UI_TRANSLATION_LOOKUP.get(trimmed);
+  if (entry) return value.replace(trimmed, entry[locale]);
+
+  const evidenceChip = trimmed.match(/^(市场|影响|SEC|期权|预期)\s+(.+)$/);
+  if (evidenceChip) {
+    const label = { 市场: "Market", 影响: "Impact", SEC: "SEC", 期权: "Options", 预期: "Expectations" }[evidenceChip[1]];
+    const valueEntry = UI_TRANSLATION_LOOKUP.get(evidenceChip[2]);
+    return value.replace(trimmed, `${label} ${valueEntry ? valueEntry[locale] : evidenceChip[2]}`);
+  }
+
+  const patterns = locale === "en" ? [
+    [/^已加载 (\d+) 候选，正在生成简报…$/, "$1 candidates loaded · building brief…"],
+    [/^已加载 (\d+) 个机会 · (\d+) 候选$/, "$1 opportunities · $2 candidates loaded"],
+    [/^已加载 (\d+) 候选$/, "$1 candidates loaded"],
+    [/^机会清单 · (\d+) 项$/, "Opportunity List · $1 items"],
+    [/^查看 (\d+) 个种子标的$/, "View $1 seed tickers"],
+    [/^(.+) 年 (\d+) 月$/, "$1 / $2"],
+    [/^未来窗口内有 (\d+) 个主流观察标的财报；今日 (\d+) 个，后续 (\d+) 个。$/, "$1 tracked earnings events in the upcoming window; $2 today and $3 later."],
+    [/^识别到 (\d+) 个二阶 read-through 公司；财报线索 (\d+)，技术线索 (\d+)，其中 (\d+) 个需要优先检查。$/, "$1 second-order read-through companies detected; $2 earnings signals and $3 technology signals, with $4 to review first."],
+    [/^当前分数 (\d+)，宏观本身不给明显方向。$/, "Current score $1; macro conditions provide no clear directional signal."],
+    [/^SCORE · 置信 (.+)$/, "SCORE · Confidence $1"],
+    [/^同公司另有 (\d+) 条更新$/, "$1 more updates for this company"],
+    [/^发布 (.+)$/, "Published $1"],
+    [/^抓取 (.+)$/, "Fetched $1"],
+    [/^— 现价 \$(.+) —$/, "— Spot $$$1 —"],
+    [/^RISK-ON 偏进攻(?: \((.+)\))?$/, (_match, score) => `RISK-ON · Risk seeking${score ? ` (${score})` : ""}`],
+    [/^RISK-OFF 防守(?: \((.+)\))?$/, (_match, score) => `RISK-OFF · Defensive${score ? ` (${score})` : ""}`],
+    [/^NEUTRAL 中性(?: \((.+)\))?$/, (_match, score) => `NEUTRAL${score ? ` (${score})` : ""}`],
+    [/^来源=(.+)$/, "Source: $1"],
+    [/^截至=(.+)$/, "As of: $1"],
+    [/^值=(.+)$/, "Value: $1"],
+    [/^分数=(.+)$/, "Score: $1"],
+    [/^([A-Z]+)：OI 符号假设下净 GEX 估算为(正|负|不可用)(?:（约 \$([^/]+)B \/ 标的变动 1%）)?(?:，现价 \$([\d.]+))?。$/, (_match, ticker, sign, billions, spot) => `${ticker}: estimated net GEX is ${{ "正": "positive", "负": "negative", "不可用": "unavailable" }[sign]} under the OI sign assumption${billions ? ` (about $${billions}B per 1% underlying move)` : ""}${spot ? `; spot $${spot}` : ""}.`],
+    [/^SPX call\/put GEX 峰值：\$(.+) \/ \$(.+)；表示该符号模型的集中 strike，不是已确认的支撑或阻力。$/, (_match, call, put) => `SPX call/put GEX peaks: $${call} / $${put}. These are concentrations under the sign model, not confirmed support or resistance.`],
+    [/^全市场卖空成交占比 ([\d.]+)%（20日均值 ([\d.]+)%）且基本持平。$/, "Market-wide short-sale volume is $1% (20-day average $2%), broadly flat."],
+    [/^VIX=([\d.]+)（3个月均值 ([\d.]+)），市场恐惧状态：(.+)。$/, (_match, value, average, fear) => `VIX=${value} (3-month average ${average}); market fear: ${UI_TRANSLATION_LOOKUP.get(fear)?.en || fear}.`],
+  ] : [
+    [/^(\d+) candidates loaded · building brief…$/, "已加载 $1 候选，正在生成简报…"],
+    [/^(\d+) opportunities · (\d+) candidates loaded$/, "已加载 $1 个机会 · $2 候选"],
+    [/^(\d+) candidates loaded$/, "已加载 $1 候选"],
+    [/^Opportunity List · (\d+) items$/, "机会清单 · $1 项"],
+    [/^View (\d+) seed tickers$/, "查看 $1 个种子标的"],
+    [/^(.+) \/ (\d+)$/, "$1 年 $2 月"],
+    [/^(\d+) tracked earnings events in the upcoming window; (\d+) today and (\d+) later\.$/, "未来窗口内有 $1 个主流观察标的财报；今日 $2 个，后续 $3 个。"],
+    [/^(\d+) second-order read-through companies detected; (\d+) earnings signals and (\d+) technology signals, with (\d+) to review first\.$/, "识别到 $1 个二阶 read-through 公司；财报线索 $2，技术线索 $3，其中 $4 个需要优先检查。"],
+    [/^Current score (\d+); macro conditions provide no clear directional signal\.$/, "当前分数 $1，宏观本身不给明显方向。"],
+    [/^SCORE · Confidence (.+)$/, "SCORE · 置信 $1"],
+    [/^(\d+) more updates for this company$/, "同公司另有 $1 条更新"],
+    [/^Published (.+)$/, "发布 $1"],
+    [/^Fetched (.+)$/, "抓取 $1"],
+    [/^— Spot \$(.+) —$/, "— 现价 $$$1 —"],
+    [/^RISK-ON · Risk seeking(?: \((.+)\))?$/, (_match, score) => `RISK-ON 偏进攻${score ? ` (${score})` : ""}`],
+    [/^RISK-OFF · Defensive(?: \((.+)\))?$/, (_match, score) => `RISK-OFF 防守${score ? ` (${score})` : ""}`],
+    [/^NEUTRAL(?: \((.+)\))?$/, (_match, score) => `NEUTRAL 中性${score ? ` (${score})` : ""}`],
+    [/^Source: (.+)$/, "来源=$1"],
+    [/^As of: (.+)$/, "截至=$1"],
+    [/^Value: (.+)$/, "值=$1"],
+    [/^Score: (.+)$/, "分数=$1"],
+    [/^([A-Z]+): estimated net GEX is (positive|negative|unavailable) under the OI sign assumption(?: \(about \$([^/]+)B per 1% underlying move\))?(?:; spot \$([\d.]+))?\.$/, (_match, ticker, sign, billions, spot) => `${ticker}：OI 符号假设下净 GEX 估算为${{ positive: "正", negative: "负", unavailable: "不可用" }[sign]}${billions ? `（约 $${billions}B / 标的变动 1%）` : ""}${spot ? `，现价 $${spot}` : ""}。`],
+    [/^SPX call\/put GEX peaks: \$(.+) \/ \$(.+)\. These are concentrations under the sign model, not confirmed support or resistance\.$/, (_match, call, put) => `SPX call/put GEX 峰值：$${call} / $${put}；表示该符号模型的集中 strike，不是已确认的支撑或阻力。`],
+    [/^Market-wide short-sale volume is ([\d.]+)% \(20-day average ([\d.]+)%\), broadly flat\.$/, "全市场卖空成交占比 $1%（20日均值 $2%）且基本持平。"],
+    [/^VIX=([\d.]+) \(3-month average ([\d.]+)\); market fear: (.+)\.$/, (_match, value, average, fear) => `VIX=${value}（3个月均值 ${average}），市场恐惧状态：${UI_TRANSLATION_LOOKUP.get(fear)?.["zh-CN"] || fear}。`],
+  ];
+  for (const [pattern, replacement] of patterns) {
+    if (pattern.test(trimmed)) return value.replace(trimmed, trimmed.replace(pattern, replacement));
+  }
+
+  const fragments = locale === "en" ? UI_TRANSLATION_FRAGMENTS : UI_TRANSLATION_FRAGMENTS.map(([zh, en]) => [en, zh]);
+  let translatedText = trimmed;
+  for (const [from, to] of fragments) translatedText = translatedText.replaceAll(from, to);
+  if (translatedText !== trimmed) return value.replace(trimmed, translatedText);
+
+  return value;
+}
+
+function localizeSubtree(root = document.body) {
+  if (root.nodeType === Node.TEXT_NODE) {
+    if (!root.parentElement?.closest("#languageToggle")) {
+      const translated = localizedText(root.nodeValue || "");
+      if (translated !== root.nodeValue) root.nodeValue = translated;
+    }
+    return;
+  }
+  if (root.nodeType !== Node.ELEMENT_NODE && root !== document) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (!node.parentElement?.closest("#languageToggle")) {
+      const translated = localizedText(node.nodeValue || "");
+      if (translated !== node.nodeValue) node.nodeValue = translated;
+    }
+  }
+  if (root instanceof Element) {
+    for (const attribute of ["placeholder", "title", "aria-label"]) {
+      if (root.hasAttribute(attribute)) {
+        const original = root.getAttribute(attribute) || "";
+        const translated = localizedText(original);
+        if (translated !== original) root.setAttribute(attribute, translated);
+      }
+    }
+    root.querySelectorAll("[placeholder], [title], [aria-label]").forEach((element) => {
+      for (const attribute of ["placeholder", "title", "aria-label"]) {
+        if (element.hasAttribute(attribute)) {
+          const original = element.getAttribute(attribute) || "";
+          const translated = localizedText(original);
+          if (translated !== original) element.setAttribute(attribute, translated);
+        }
+      }
+    });
+  }
+}
+
+function applyLocale() {
+  document.documentElement.lang = locale;
+  document.title = locale === "en" ? "AI News Radar | Research Terminal" : "AI News Radar | 研究终端";
+  const button = document.querySelector("#languageToggle");
+  if (button) {
+    button.querySelector("span").textContent = locale === "en" ? "English" : "中文";
+    button.title = locale === "en" ? "Switch to 中文" : "切换到 English";
+    button.setAttribute("aria-label", locale === "en" ? "Switch interface language" : "切换显示语言");
+  }
+  localizeSubtree(document.body);
+}
 
 function currentMonthIso() {
   const now = new Date();
@@ -57,6 +237,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function safeArticleHref(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol) ? escapeHtml(url.href) : "";
+  } catch {
+    return "";
+  }
+}
+
 function articleOf(row) {
   return row?.article && typeof row.article === "object" ? row.article : {};
 }
@@ -86,7 +275,7 @@ function groupRows(rows, keyFn) {
    candidates (with a score-derived action) before the first brief loads. */
 function reportRows() {
   const rows = state.brief?.analyst_report;
-  if (Array.isArray(rows) && rows.length) return rows;
+  if (Array.isArray(rows)) return rows;
   return state.candidates.map((candidate) => ({
     ...candidate,
     action: candidate.action || actionFromScore(candidate.score),
@@ -273,6 +462,7 @@ function render() {
   if (state.view === "market") renderMarket();
   if (state.view === "process") renderProcess();
   if (state.view === "sources") renderSources();
+  localizeSubtree(document.body);
 }
 
 /* ------------------------------------------------------------------ */
@@ -335,6 +525,53 @@ function shortTime(iso) {
   return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+const TECH_MAX_PUBLISHED_AGE_DAYS = 14;
+const TECH_MAX_UNDATED_AGE_DAYS = 3;
+
+function parsedTime(value) {
+  if (!value) return null;
+  const timestamp = Date.parse(String(value));
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function technologyTimes(candidate) {
+  const article = articleOf(candidate);
+  const publishedAt = parsedTime(article.published);
+  const observedAt = parsedTime(candidate.first_seen_at || article.fetched_at);
+  return { publishedAt, observedAt, sortAt: publishedAt ?? observedAt };
+}
+
+function recentTechnologyCandidates(rows = visibleCandidates()) {
+  const now = Date.now();
+  return rows
+    .filter(hasTechnologyIntel)
+    .filter((candidate) => {
+      const { publishedAt, observedAt } = technologyTimes(candidate);
+      const timestamp = publishedAt ?? observedAt;
+      if (timestamp === null) return false;
+      const ageDays = (now - timestamp) / 86_400_000;
+      const maxAge = publishedAt === null ? TECH_MAX_UNDATED_AGE_DAYS : TECH_MAX_PUBLISHED_AGE_DAYS;
+      return ageDays >= -1 && ageDays <= maxAge;
+    })
+    .sort((a, b) => technologyTimes(b).sortAt - technologyTimes(a).sortAt);
+}
+
+function technologyDateMeta(candidate) {
+  const { publishedAt, observedAt } = technologyTimes(candidate);
+  const dateLabel = (timestamp, withTime = false) => {
+    if (timestamp === null) return "";
+    const date = new Date(timestamp);
+    return withTime
+      ? date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+      : date.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+  };
+  const published = publishedAt === null
+    ? '<span class="tech-date-unknown">未提供发布时间</span>'
+    : `<span>发布 ${escapeHtml(dateLabel(publishedAt))}</span>`;
+  const observed = observedAt === null ? "" : `<span>抓取 ${escapeHtml(dateLabel(observedAt, true))}</span>`;
+  return `<div class="technology-card-meta">${published}${observed}</div>`;
+}
+
 /* ------------------------------------------------------------------ */
 /* BRIEF cockpit                                                      */
 /* ------------------------------------------------------------------ */
@@ -346,10 +583,14 @@ function renderBrief() {
   }
   const conclusion = brief.market_conclusion_zh || {};
   const calendar = brief.earnings_calendar || {};
-  const rows = visibleOpportunities();
+  const rows = state.query.trim()
+    ? visibleOpportunities()
+    : Array.isArray(brief.digest_items) ? brief.digest_items : visibleOpportunities();
   const top = rows[0];
   const tableRows = rows.slice(0, 12);
-  const technologyCandidates = visibleCandidates().filter(hasTechnologyIntel).slice(0, 3);
+  const allTechnologyCandidates = visibleCandidates().filter(hasTechnologyIntel);
+  const technologyCandidates = recentTechnologyCandidates(allTechnologyCandidates).slice(0, 3);
+  const hiddenHistoricalTechnologyCount = Math.max(0, allTechnologyCandidates.length - recentTechnologyCandidates(allTechnologyCandidates).length);
   const earningsDetails = earningsDetailsByTicker(calendar.items || []);
   const gaps = (brief.data_gaps_zh || brief.data_gaps || [])
     .slice(0, 6)
@@ -387,23 +628,31 @@ function renderBrief() {
     <section class="section-head">
       <div>
         <h3>技术前沿</h3>
-        <p>技术博客/论文里的路线图与供应链早期信号。</p>
+        <p>近 14 天技术路线与供应链信号，按发布时间倒序${hiddenHistoricalTechnologyCount ? ` · ${hiddenHistoricalTechnologyCount} 条旧线索已从首页收起` : ""}。</p>
       </div>
       <button class="small-action" type="button" data-inline-view="technology">技术工作台 →</button>
     </section>
-    <div class="content-grid">${technologyCandidates.map(renderTechnologyCard).join("") || '<div class="empty">本轮暂无明确技术路线图信号。</div>'}</div>
+    <div class="content-grid">${technologyCandidates.map(renderTechnologyCard).join("") || '<div class="empty">近 14 天暂无有明确发布时间的技术路线文章；历史线索仍可在机会页查看。</div>'}</div>
 
     <section class="section-head"><div><h3>证据缺口</h3><p>系统下一轮要补的证据，不是交给你的待办。</p></div></section>
     <section class="row"><div class="row-meta">${gaps || "<span>当前没有关键缺口。</span>"}</div></section>
   `;
   bindInlineViewButtons();
   bindOppRows();
+  bindCrossLinks();
 }
 
 function renderTopCall(row) {
   const article = articleOf(row);
   const action = row.action || actionFromScore(row.score);
   const tickers = candidateTickers(row);
+  const mainHref = safeArticleHref(article.link);
+  const related = Array.isArray(row.related_updates) ? row.related_updates : [];
+  const relatedLinks = related.map((update) => {
+    const href = safeArticleHref(update.link);
+    const label = `${update.source || "来源未标注"} · ${update.title || "标题未标注"}`;
+    return href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>` : `<span>${escapeHtml(label)}</span>`;
+  }).join("");
   return `
     <article class="topcall act-${escapeHtml(action)}">
       <div class="topcall-head">
@@ -415,7 +664,8 @@ function renderTopCall(row) {
       </div>
       <div class="topcall-decision">${escapeHtml(row.decision || row.analyst_take || "")}</div>
       <div class="row-meta">${evidenceChips(row)}</div>
-      <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · ${escapeHtml(article.title || "")}</a></div>
+      <div class="topcall-catalyst">${mainHref ? `<a href="${mainHref}" target="_blank" rel="noopener noreferrer">${escapeHtml(article.source || "")} · ${escapeHtml(article.title || "")}</a>` : escapeHtml(`${article.source || ""} · ${article.title || ""}`)}</div>
+      ${row.related_update_count ? `<div class="topcall-related"><b>同公司另有 ${Number(row.related_update_count)} 条更新</b><span>可能是不同事件，请分别核实</span>${relatedLinks}</div>` : ""}
     </article>
   `;
 }
@@ -455,7 +705,7 @@ function renderPdfDim(row) {
       <span class="dim-v"><span class="ev na">${escapeHtml(String(p.page_count ?? "?"))} 页</span> <span class="ev na">全文证据层 ${escapeHtml(p.evidence_tier || "n/a")}</span> <span class="ev na">全文分 ${escapeHtml(String(p.full_text_score ?? 0))}</span></span>
       ${extra ? `<span class="dim-v">较标题新增硬证据：</span><span class="dim-v">${extra}</span>` : ""}
       ${p.excerpt ? `<span class="dim-v" style="color:var(--muted)">摘录：${escapeHtml(p.excerpt)}</span>` : ""}
-      ${p.source_url ? `<span class="dim-v"><a href="${escapeHtml(p.source_url)}" target="_blank" rel="noreferrer">打开 PDF ↗</a></span>` : ""}
+      ${safeArticleHref(p.source_url) ? `<span class="dim-v"><a href="${safeArticleHref(p.source_url)}" target="_blank" rel="noopener noreferrer">打开 PDF ↗</a></span>` : ""}
     </div>
   `;
 }
@@ -546,6 +796,7 @@ function renderOpportunities() {
     ${renderOppTable(rows)}
   `;
   bindOppRows();
+  bindCrossLinks();
 }
 
 function renderOppTable(rows) {
@@ -632,9 +883,38 @@ function renderDetail(row) {
       ${renderTechnologyIntel(row)}
       ${renderEarningsAnalysis(row)}
       ${renderReadthroughAnalysis(row)}
-      <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · 打开原文 ↗</a></div>
+      <div class="topcall-catalyst">
+        ${safeArticleHref(article.link) ? `<a href="${safeArticleHref(article.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(article.source || "")} · 打开原文 ↗</a>` : ""}
+        ${candidateTickers(row).slice(0, 1).map((t) => `<button class="small-action" type="button" data-diagnose-ticker="${escapeHtml(t)}">⚕ ${escapeHtml(t)} 错杀诊断 →</button>`).join("")}
+        ${candidateTickers(row).slice(0, 1).map((t) => `<button class="small-action" type="button" data-earnings-jump="${escapeHtml(t)}">📊 财报工作台 →</button>`).join("")}
+      </div>
     </div>
   `;
+}
+
+function jumpToDiagnose(ticker) {
+  setView("diagnose");
+  runDiagnose(ticker);
+}
+
+function jumpToEarnings(ticker) {
+  state.selectedEarningsTicker = String(ticker || "").toUpperCase();
+  setView("earnings");
+}
+
+function bindCrossLinks() {
+  document.querySelectorAll("[data-diagnose-ticker]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      jumpToDiagnose(button.dataset.diagnoseTicker);
+    });
+  });
+  document.querySelectorAll("[data-earnings-jump]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      jumpToEarnings(button.dataset.earningsJump);
+    });
+  });
 }
 
 function bindOppRows() {
@@ -683,7 +963,7 @@ function renderWatchlistItem(row) {
       <div>
         <div class="signal-title">
           <span class="band ${Number(row.conviction || 0) >= 4 ? "hard" : "watch"}">信念 ${escapeHtml(row.conviction || 0)}/5</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(row.company_name || "Unknown")}</a>
+          <a href="${safeArticleHref(article.link) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(row.company_name || "Unknown")}</a>
           <span class="pill">${escapeHtml(candidateTickers(row).join(", ") || "ticker待确认")}</span>
           ${qualityChip(row)}${squeezeChip(row)}${flowChip(row)}${pdfChip(row)}
         </div>
@@ -852,13 +1132,102 @@ function renderSelectedEarningsDetail(item, detail) {
   return `
     <div class="content-grid">
       ${renderFinancialTiles(finState, item)}
+      ${renderRevenueTrend(finState)}
       ${renderCapitalAllocation(finState)}
       ${renderTeardown(finState)}
       ${renderHolders(tickerOf(item))}
+      ${renderOptionsStructureCard(tickerOf(item))}
       ${renderFilings(finState)}
       ${detail ? renderEarningsCard(detail) : renderNoReleaseCard(item)}
     </div>
   `;
+}
+
+function renderRevenueTrend(finState) {
+  const snap = finState && typeof finState === "object" ? finState.snapshot : null;
+  const trend = snap && typeof snap.revenue_trend === "object" ? snap.revenue_trend : null;
+  if (!trend || trend.status !== "ok" || !(trend.quarters || []).length) return "";
+  const quarters = trend.quarters || [];
+  const maxRev = Math.max(...quarters.map((q) => Number(q.revenue_musd) || 0), 1);
+  const bars = quarters.map((q) => {
+    const h = Math.max(8, Math.round((Number(q.revenue_musd) || 0) / maxRev * 56));
+    const yoy = q.yoy_pct == null ? "n/a" : `${Number(q.yoy_pct) >= 0 ? "+" : ""}${Number(q.yoy_pct).toFixed(0)}%`;
+    const cls = q.yoy_pct == null ? "" : Number(q.yoy_pct) >= 0 ? "rev-up" : "rev-down";
+    return `<div class="rev-q" title="${escapeHtml(q.end)} · ${escapeHtml(formatMusd(q.revenue_musd))} · YoY ${escapeHtml(yoy)}">
+        <span class="rev-yoy ${cls}">${escapeHtml(yoy)}</span>
+        <span class="rev-bar" style="height:${h}px"></span>
+        <span class="rev-end">${escapeHtml(String(q.end).slice(2, 7))}</span>
+      </div>`;
+  }).join("");
+  const verdictCls = { accelerating: "ok", stable: "warn", decelerating: "bad", declining: "bad" }[trend.verdict] || "na";
+  return `
+    <article class="row">
+      <div class="row-title">本季判读 · 营收增速 <span class="ev ${verdictCls}">${escapeHtml(trendVerdictZh(trend.verdict))}</span></div>
+      <div class="rev-trend">${bars}</div>
+      <div class="terms">${escapeHtml(trend.verdict_zh || "")}</div>
+      <div class="terms">来源：SEC companyfacts 单季营收（XBRL），同比按相隔一年的季度计算，不受财年错位影响。</div>
+    </article>
+  `;
+}
+
+function trendVerdictZh(verdict) {
+  return { accelerating: "加速", decelerating: "减速", stable: "平稳", declining: "同比转负" }[verdict] || "数据不足";
+}
+
+function renderOptionsStructureCard(ticker) {
+  const o = state.optionsStructure[ticker];
+  let body;
+  if (o === undefined) {
+    body = `<button class="small-action" type="button" data-options="${escapeHtml(ticker)}">📈 查看期权结构（CBOE 全链 · GEX / IV / P-C）</button>`;
+  } else if (o === "loading") {
+    body = `<div class="terms">正在拉取 CBOE 全链并聚合 GEX…（约 3–10 秒）</div>`;
+  } else if (!o || o.status !== "ok") {
+    body = `<div class="terms">${escapeHtml((o && o.summary_zh) || "期权链不可用（可能无期权或 CBOE 限流）。")}</div>`;
+  } else {
+    const gex = objectValue(o.gex);
+    const term = objectValue(o.iv_term);
+    const pc = objectValue(o.put_call);
+    const tiles = [
+      statTile("GEX 代理", gex.regime === "positive_gamma" ? "净值估算 +" : gex.regime === "negative_gamma" ? "净值估算 −" : "n/a"),
+      statTile("Gamma 翻转位", "未估算"),
+      statTile("Call GEX 峰", gex.call_wall != null ? `$${gex.call_wall}` : "n/a"),
+      statTile("Put GEX 峰", gex.put_wall != null ? `$${gex.put_wall}` : "n/a"),
+      statTile("P/C OI", pc.oi_ratio != null ? String(pc.oi_ratio) : "n/a"),
+      statTile("IV30", o.iv30 != null ? `${Number(o.iv30).toFixed(1)}%` : "n/a", term.inverted ? "accent" : ""),
+    ].join("");
+    const ivNote = term.inverted && term.front
+      ? `近月 ATM IV ${(Number(term.front.atm_iv) * 100).toFixed(0)}% 高于远月——期权市场在为财报/短期事件定价大幅波动。`
+      : "IV 期限结构正常，期权市场未对近期事件定价异常波动。";
+    const strikeMap = objectValue(o.strike_map);
+    body = `
+      <div class="stat-tiles">${tiles}</div>
+      <div class="terms">${escapeHtml(ivNote)}</div>
+      ${strikeMap.status === "ok" ? `<div class="terms">📍 ${escapeHtml(strikeMap.summary_zh || "")}</div>` : ""}
+      <div class="terms">${escapeHtml(o.summary_zh || "")}</div>
+      <div class="terms">${escapeHtml(gex.flip_reason_zh || "OI 符号模型不等于实际做市商持仓；OI 本身不显示买卖方向。")}</div>
+      <div class="terms">${escapeHtml(o.source_policy_zh || "")}</div>
+    `;
+  }
+  return `
+    <article class="row">
+      <div class="row-title">📈 期权怎么看这只股（CBOE 延迟全链）</div>
+      ${body}
+    </article>
+  `;
+}
+
+async function loadOptionsStructure(ticker) {
+  if (!ticker || state.optionsStructure[ticker] === "loading") return;
+  state.optionsStructure[ticker] = "loading";
+  if (state.view === "earnings") renderEarnings();
+  try {
+    const response = await fetch(`/api/options_structure?ticker=${encodeURIComponent(ticker)}`);
+    const payload = await response.json();
+    state.optionsStructure[ticker] = payload.ok ? payload : null;
+  } catch (error) {
+    state.optionsStructure[ticker] = null;
+  }
+  if (state.view === "earnings") renderEarnings();
 }
 
 function renderHolders(ticker) {
@@ -867,17 +1236,29 @@ function renderHolders(ticker) {
   if (h === undefined) {
     body = `<button class="small-action" type="button" data-holders="${escapeHtml(ticker)}">🏛️ 查看 13F 机构持仓（联网检索 SEC，较慢）</button>`;
   } else if (h === "loading") {
-    body = `<div class="terms">正在检索 SEC 13F 申报…（全文搜索 + 解析信息表，约 10–30 秒）</div>`;
+    const p = state.holdersProgress[ticker] || { stage_zh: "排队中", done: 0, total: 0 };
+    const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+    body = `
+      <div class="holders-progress">
+        <div class="hp-bar"><span style="width:${pct}%"></span></div>
+        <div class="terms">${escapeHtml(p.stage_zh)}${p.total > 0 ? ` ${p.done}/${p.total}` : ""}…（全文搜索 + 双季信息表对比，约 30–60 秒）</div>
+      </div>`;
   } else if (!h || h.status !== "ok" || !(h.holders || []).length) {
     body = `<div class="terms">${escapeHtml((h && h.summary_zh) || "近一季 13F 申报中未检索到机构持仓（或 SEC 限流）。")}</div>`;
   } else {
-    const rows = (h.holders || []).slice(0, 14).map((m) => `
+    const rows = (h.holders || []).slice(0, 14).map((m) => {
+      const changeCls = { increased: "ok", new: "ok", reduced: "bad", unchanged: "na" }[m.change_label] || "na";
+      const changeChip = m.change_zh && m.change_label !== "unknown"
+        ? `<span class="ev ${changeCls}" title="对比该机构上一份 13F（${escapeHtml(m.prev_filed || "上一季")}）">${escapeHtml(m.change_zh)}</span>`
+        : "";
+      return `
       <div class="holder-row${m.notable ? " holder-notable" : ""}">
         <span class="holder-val">${escapeHtml(fmtUsd(m.value_usd))}</span>
-        <span class="holder-name">${m.notable ? "⭐ " : ""}${escapeHtml(m.manager || "")}</span>
+        <span class="holder-name">${m.notable ? "⭐ " : ""}${escapeHtml(m.manager || "")} ${changeChip}</span>
         <span class="holder-sh">${escapeHtml(fmtShares(m.shares))} 股 · ${escapeHtml(m.filed || "")}</span>
       </div>
-    `).join("");
+    `;
+    }).join("");
     body = `<div class="holder-list">${rows}</div><div class="terms">${escapeHtml(h.summary_zh || "")}</div>`;
   }
   return `
@@ -892,6 +1273,14 @@ async function loadHolders(ticker) {
   if (!ticker || state.holders[ticker] === "loading") return;
   state.holders[ticker] = "loading";
   if (state.view === "earnings") renderEarnings();
+  const poll = setInterval(async () => {
+    if (state.holders[ticker] !== "loading") { clearInterval(poll); return; }
+    try {
+      const r = await fetch(`/api/holders_progress?ticker=${encodeURIComponent(ticker)}`);
+      state.holdersProgress[ticker] = await r.json();
+      if (state.view === "earnings" && state.holders[ticker] === "loading") renderEarnings();
+    } catch (e) { /* progress is cosmetic */ }
+  }, 1500);
   try {
     const response = await fetch(`/api/holders?ticker=${encodeURIComponent(ticker)}`);
     const payload = await response.json();
@@ -899,6 +1288,8 @@ async function loadHolders(ticker) {
   } catch (error) {
     state.holders[ticker] = null;
   }
+  clearInterval(poll);
+  delete state.holdersProgress[ticker];
   if (state.view === "earnings") renderEarnings();
 }
 
@@ -1001,14 +1392,19 @@ function renderFilings(finState) {
     if (finState === "loading" || finState === undefined) return "";
     return "";
   }
-  const rows = filings.slice(0, 8).map((f) => `
-    <a class="filing-row" href="${escapeHtml(f.doc_url || "#")}" target="_blank" rel="noreferrer">
+  const rows = filings.slice(0, 8).map((f) => {
+    const itemChips = (f.items_zh || [])
+      .map((it) => `<span class="ev ${it.notable ? "warn" : "na"}" title="8-K Item ${escapeHtml(it.code)}">${escapeHtml(it.label_zh)}</span>`)
+      .join(" ");
+    return `
+    <a class="filing-row" href="${safeArticleHref(f.doc_url) || "#"}" target="_blank" rel="noopener noreferrer">
       <span class="filing-form">${escapeHtml(f.form || "")}</span>
       <span class="filing-date">${escapeHtml(f.filed || "")}</span>
-      <span class="filing-desc">${escapeHtml(f.description || _filingFormZh(f.form))}</span>
+      <span class="filing-desc">${itemChips || escapeHtml(f.description || _filingFormZh(f.form))}</span>
       <span class="filing-open">打开 ↗</span>
     </a>
-  `).join("");
+  `;
+  }).join("");
   return `
     <article class="row">
       <div class="row-title">最新 SEC 文件（EDGAR 实际申报 · 权威原文）</div>
@@ -1132,6 +1528,9 @@ function bindEarningsButtons() {
   document.querySelectorAll("[data-holders]").forEach((button) => {
     button.addEventListener("click", () => loadHolders(button.dataset.holders));
   });
+  document.querySelectorAll("[data-options]").forEach((button) => {
+    button.addEventListener("click", () => loadOptionsStructure(button.dataset.options));
+  });
 }
 
 function renderEarningsCard(candidate) {
@@ -1141,7 +1540,7 @@ function renderEarningsCard(candidate) {
       <div>
         <div class="signal-title">
           <span class="band hard">财报</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
+          <a href="${safeArticleHref(article.link) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
           <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
         </div>
         <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
@@ -1157,12 +1556,14 @@ function renderEarningsCard(candidate) {
 /* TECHNOLOGY                                                         */
 /* ------------------------------------------------------------------ */
 function renderTechnology() {
-  const candidates = visibleCandidates().filter(hasTechnologyIntel);
+  const allCandidates = visibleCandidates().filter(hasTechnologyIntel);
+  const candidates = recentTechnologyCandidates(allCandidates);
+  const historicalCount = allCandidates.length - candidates.length;
   elements.contentArea.innerHTML = `
     <section class="section-head">
-      <div><h3>技术前沿任务</h3><p>读取技术博客、论文和研究报告，提取技术路线、被点名公司和供应链 read-through。</p></div>
+      <div><h3>技术前沿任务</h3><p>近 14 天文章按发布时间倒序；无发布时间的来源只保留最近 3 天首次抓取的条目。${historicalCount ? `另有 ${historicalCount} 条旧线索，可在机会页搜索。` : ""}</p></div>
     </section>
-    <div class="content-grid">${candidates.map(renderTechnologyCard).join("") || '<div class="empty">本轮扫描暂未抓到明确技术路线图信号。</div>'}</div>
+    <div class="content-grid technology-results">${candidates.map(renderTechnologyCard).join("") || '<div class="empty">近 14 天暂无明确技术路线文章。</div>'}</div>
   `;
 }
 
@@ -1173,15 +1574,46 @@ function renderTechnologyCard(candidate) {
       <div>
         <div class="signal-title">
           <span class="band watch">技术</span>
-          <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
+          <a href="${safeArticleHref(article.link) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(candidate.company_name || "Unknown")}</a>
           <span class="pill">${escapeHtml(candidateTickers(candidate).join(", ") || "ticker待确认")}</span>
         </div>
         <div class="meta">${escapeHtml(article.source || "unknown")} · ${escapeHtml(article.title || "")}</div>
-        ${renderTechnologyIntel(candidate)}
-        ${renderReadthroughAnalysis(candidate)}
+        ${technologyDateMeta(candidate)}
+        ${renderTechnologyCardIntel(candidate)}
       </div>
       <div class="score"><strong>${Number(candidate.score || 0).toFixed(1)}</strong><span>score</span></div>
     </article>
+  `;
+}
+
+function renderTechnologyCardIntel(candidate) {
+  const intel = objectValue(candidate.technology_intel);
+  if (!intel.status || intel.status === "not_technology_signal") return "";
+  const analysis = objectValue(candidate.readthrough_analysis);
+  const themes = (intel.themes || []).slice(0, 4)
+    .map((item) => `<span class="pill">${escapeHtml(techThemeZh(item.theme))}</span>`).join("");
+  const companies = intel.mentioned_companies || [];
+  const companyTags = companies.slice(0, 5)
+    .map((item) => `<span class="pill">${escapeHtml(item.ticker)} ${escapeHtml(item.name || "")}</span>`).join("");
+  const extraCompanies = companies.length > 5 ? `<span class="tech-more">+${companies.length - 5}</span>` : "";
+  const watchPoints = (intel.watch_points_zh || []).slice(0, 5)
+    .map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const readthroughSummary = analysis.status && analysis.status !== "no_readthrough"
+    ? analysis.summary_zh || "查看下游公司验证状态"
+    : "查看技术证据与验证要点";
+  const details = [
+    intel.read_through_zh ? `<p>${escapeHtml(intel.read_through_zh)}</p>` : "",
+    watchPoints ? `<ul class="technology-checklist">${watchPoints}</ul>` : "",
+    intel.limitations_zh ? `<p class="technology-limitation">${escapeHtml(intel.limitations_zh)}</p>` : "",
+    renderReadthroughAnalysis(candidate),
+  ].filter(Boolean).join("");
+  return `
+    <div class="technology-card-insights">
+      <div class="technology-route-line"><span class="band watch">技术路线</span><span>${escapeHtml(intel.summary_zh || "技术来源命中")}</span></div>
+      ${themes ? `<div class="technology-card-tags">${themes}</div>` : ""}
+      ${companyTags ? `<div class="technology-company-map"><span>关联公司</span><div>${companyTags}${extraCompanies}</div></div>` : ""}
+      ${details ? `<details class="technology-details"><summary>${escapeHtml(readthroughSummary)}</summary><div class="technology-details-body">${details}</div></details>` : ""}
+    </div>
   `;
 }
 
@@ -1250,6 +1682,89 @@ function renderDiagnose() {
   }
 }
 
+function renderMarketStrip(market) {
+  if (!market || market.status !== "ok") return "";
+  const postureCls = { friendly: "ok", neutral: "warn", hostile: "bad" }[market.posture] || "na";
+  const chips = [];
+  [market.spy, market.qqq, market.spx].forEach((idx) => {
+    if (idx && idx.status === "ok") {
+      const regimeZh = idx.regime === "positive_gamma" ? "净 GEX 估算 +" : "净 GEX 估算 −";
+      chips.push(`<span class="ev warn" title="CBOE 延迟期权链的 OI 符号模型，不代表实际做市商持仓">${escapeHtml(idx.ticker)} ${regimeZh}</span>`);
+    }
+  });
+  const dp = objectValue(market.dark_pool);
+  if (dp.status === "ok") {
+    const trendZh = { rising: "空压↑", falling: "空压↓", flat: "空压平" }[dp.trend] || "";
+    chips.push(`<span class="ev ${dp.trend === "falling" ? "ok" : dp.trend === "rising" ? "bad" : "na"}">全市场卖空 ${(Number(dp.latest_ratio) * 100).toFixed(0)}% ${trendZh}</span>`);
+  }
+  const vix = objectValue(market.vix);
+  if (vix.status === "ok") {
+    chips.push(`<span class="ev ${vix.regime === "calm" ? "ok" : vix.regime === "fear" ? "bad" : "warn"}">VIX ${escapeHtml(vix.vix)}</span>`);
+  }
+  return `
+    <section class="row market-strip">
+      <div class="row-title">大盘环境 <span class="ev ${postureCls}">${escapeHtml({ friendly: "友好", neutral: "中性", hostile: "不友好" }[market.posture] || "未知")}</span> ${chips.join(" ")}</div>
+      <div class="terms">${escapeHtml(market.posture_zh || "")}</div>
+    </section>
+  `;
+}
+
+function renderActionPlan(plan) {
+  if (!plan || !plan.stance_zh) return "";
+  const stanceCls = { plan_entry: "ok", watch: "warn", stand_aside: "bad" }[plan.stance] || "na";
+  const levels = (plan.levels || []).map((level) => `
+    <div class="level-row">
+      <span class="level-price">$${escapeHtml(level.price)}</span>
+      <span class="terms">${escapeHtml(level.label_zh)}</span>
+    </div>
+  `).join("");
+  const lines = (plan.playbook_zh || []).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+  return `
+    <section class="row">
+      <div class="row-title">行动剧本 <span class="ev ${stanceCls}">${escapeHtml(plan.stance_zh)}</span></div>
+      ${levels ? `<div class="level-list">${levels}</div>` : ""}
+      <ul class="terms">${lines}<li>${escapeHtml(plan.market_adjustment_zh || "")}</li></ul>
+      <div class="terms">${escapeHtml(plan.disclaimer_zh || "")}</div>
+    </section>
+  `;
+}
+
+function renderStrikeLadder(options) {
+  const map = options && typeof options.strike_map === "object" ? options.strike_map : null;
+  if (!map || map.status !== "ok" || !(map.top_oi || []).length) return "";
+  const spot = Number(options.spot);
+  const rows = [...map.top_oi].sort((a, b) => b.strike - a.strike);
+  const maxOi = Math.max(...rows.map((r) => Number(r.call_oi) + Number(r.put_oi)), 1);
+  let spotInserted = false;
+  const html = [];
+  rows.forEach((r) => {
+    if (!spotInserted && Number.isFinite(spot) && spot > Number(r.strike)) {
+      html.push(`<div class="ladder-spot">— 现价 $${spot} —</div>`);
+      spotInserted = true;
+    }
+    const callW = Math.round((Number(r.call_oi) / maxOi) * 100);
+    const putW = Math.round((Number(r.put_oi) / maxOi) * 100);
+    const marks = [];
+    if (Number(r.strike) === Number(map.max_call_oi_strike)) marks.push("Call OI 峰");
+    if (Number(r.strike) === Number(map.max_put_oi_strike)) marks.push("Put OI 峰");
+    if (Number(r.strike) === Number(map.max_volume_strike)) marks.push("成交量峰");
+    html.push(`
+      <div class="ladder-row" title="call OI=${escapeHtml(fmtShares(r.call_oi))} / put OI=${escapeHtml(fmtShares(r.put_oi))} / 今日成交 ${escapeHtml(fmtShares(Number(r.call_volume) + Number(r.put_volume)))}">
+        <span class="ladder-strike">$${escapeHtml(r.strike)}${marks.length ? ` <span class="pill">${marks.join("·")}</span>` : ""}</span>
+        <span class="ladder-bars"><span class="lb-call" style="width:${callW}%"></span><span class="lb-put" style="width:${putW}%"></span></span>
+      </div>`);
+  });
+  if (!spotInserted && Number.isFinite(spot)) html.push(`<div class="ladder-spot">— 现价 $${spot} —</div>`);
+  return `
+    <section class="row">
+      <div class="row-title">期权未平仓分布</div>
+      <div class="ladder-legend"><span class="lb-call-dot"></span>call 未平仓 <span class="lb-put-dot"></span>put 未平仓</div>
+      ${html.join("")}
+      <div class="terms">${escapeHtml(map.summary_zh || "")} 未平仓量与成交量都不显示主动买方/卖方，不能单独作为支撑或阻力判断。</div>
+    </section>
+  `;
+}
+
 function renderDiagnoseResult(result) {
   const premise = objectValue(result.premise);
   const componentsBlock = (result.score_components || []).map((component) => `
@@ -1274,7 +1789,7 @@ function renderDiagnoseResult(result) {
   const news = objectValue(parts.radar_news);
   const newsRows = (news.recent || []).slice(0, 6).map((hit) => `
     <article class="row">
-      <a href="${escapeHtml(hit.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(hit.title || "Untitled")}</a>
+      <a href="${safeArticleHref(hit.link) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(hit.title || "Untitled")}</a>
       <div class="row-meta">
         <span class="pill">${escapeHtml(hit.evidence_tier || "signal")}</span>
         <span>${escapeHtml(hit.published || "")}</span>
@@ -1295,6 +1810,9 @@ function renderDiagnoseResult(result) {
         <div class="terms">${escapeHtml(result.method_zh || "")}</div>
       </div>
     </section>
+    ${renderMarketStrip(objectValue(parts.market_structure))}
+    ${renderActionPlan(objectValue(result.action_plan))}
+    ${renderStrikeLadder(objectValue(parts.options_structure))}
     <section class="section-head"><div><h3>评分构成</h3><p>每一项都附理由；分数回答「结构是否支持错杀假设」，不直接构成买入指令。</p></div></section>
     <section class="source-grid">${componentsBlock}</section>
     <section class="section-head"><div><h3>触发条件</h3><p>出现以下任一信号，才把「观察」升级为「行动」。</p></div></section>
@@ -1306,11 +1824,158 @@ function renderDiagnoseResult(result) {
   `;
 }
 
+async function loadMarketStructure() {
+  if (state.marketStructure === "loading") return;
+  state.marketStructure = "loading";
+  try {
+    const response = await fetch("/api/market_structure");
+    const payload = await response.json();
+    state.marketStructure = payload.ok ? payload : { status: "unavailable" };
+  } catch (error) {
+    state.marketStructure = { status: "unavailable" };
+  }
+  if (state.view === "market" || state.view === "diagnose") render();
+}
+
+function marketStructureSection() {
+  const market = state.marketStructure;
+  if (market === null) loadMarketStructure();
+  if (market === null || market === "loading") {
+    return '<section class="row"><div class="row-title">大盘结构（gamma / 暗盘 / VIX）</div><div class="terms">正在拉取 SPY/QQQ 期权链与 FINRA 全市场卖空…</div></section>';
+  }
+  if (!market || market.status !== "ok") {
+    return '<section class="row"><div class="row-title">大盘结构（gamma / 暗盘 / VIX）</div><div class="terms">大盘结构数据暂不可用。</div></section>';
+  }
+  const indexLine = (index) => {
+    if (!index || index.status !== "ok") return "";
+    const sign = index.regime === "positive_gamma" ? "正" : index.regime === "negative_gamma" ? "负" : "不可用";
+    const net = index.net_gex_usd == null ? "" : `（约 $${(Number(index.net_gex_usd) / 1e9).toFixed(2)}B / 标的变动 1%）`;
+    const spot = index.spot == null ? "" : `，现价 $${index.spot}`;
+    return `${index.ticker}：OI 符号假设下净 GEX 估算为${sign}${net}${spot}。`;
+  };
+  const spx = market.spx;
+  const spxLine = spx && spx.status === "ok" && (spx.call_wall != null || spx.put_wall != null)
+    ? `SPX call/put GEX 峰值：$${spx.call_wall ?? "n/a"} / $${spx.put_wall ?? "n/a"}；表示该符号模型的集中 strike，不是已确认的支撑或阻力。`
+    : "";
+  const summaryLines = [indexLine(market.spy), indexLine(market.qqq), spxLine,
+    market.dark_pool?.summary_zh, market.vix?.summary_zh].filter(Boolean);
+  const snapshotTime = market.fetched_at
+    ? shortTime(market.fetched_at)
+    : "服务端未提供快照时间，当前数值的新鲜度无法确认";
+  return `
+    ${renderMarketStrip(market)}
+    <section class="row market-summary">
+      <div class="market-summary-grid">
+        <div class="market-summary-main">
+          <div class="market-summary-label">结构读数</div>
+          <div class="market-summary-lines">${summaryLines.map((line) => `<p>${escapeHtml(line)}</p>`).join("") || "<p>暂无结构读数。</p>"}</div>
+        </div>
+        <aside class="market-method">
+          <div class="market-summary-label">来源与假设</div>
+          <p>CBOE 提供延迟期权链。未平仓量（OI）不显示买卖方；这里用 calls 正、puts 负估算 GEX，只是结构代理，不代表真实做市商仓位。Call/put GEX 峰值不是支撑或阻力。FINRA 卖空成交占比也不代表暗池净买卖方向。</p>
+        </aside>
+      </div>
+      <div class="market-data-time">本次结构快照：${escapeHtml(snapshotTime)} · CBOE 源时间见下方图表</div>
+    </section>
+  `;
+}
+
+function renderGammaByStrike() {
+  const market = state.marketStructure;
+  if (!market || market.status !== "ok") return "";
+  const which = state.gammaChart.index;
+  const metric = state.gammaChart.metric;
+  const idx = which === "QQQ" ? objectValue(market.qqq) : which === "SPX" ? objectValue(market.spx) : objectValue(market.spy);
+  const chart = objectValue(idx.strike_chart);
+  const indexBtn = (key) => `<button class="small-action ${which === key ? "active" : ""}" type="button" data-gamma-index="${key}">${key}</button>`;
+  const metricBtn = (key, label) => `<button class="small-action ${metric === key ? "active" : ""}" type="button" data-gamma-metric="${key}">${label}</button>`;
+  const controls = `
+    <div class="gamma-controls">
+      <span class="gamma-toggle">${indexBtn("SPY")}${indexBtn("QQQ")}${indexBtn("SPX")}</span>
+      <span class="gamma-toggle">${metricBtn("net_gex", "Net GEX")}${metricBtn("oi", "未平仓 OI")}</span>
+    </div>`;
+  if (chart.status !== "ok" || !(chart.bars || []).length) {
+    return `<section class="row"><div class="row-title">大盘 Gamma 分布（按 strike）</div>${controls}<div class="terms">${escapeHtml(which)} 期权链数据暂不可用。</div></section>`;
+  }
+  const spot = Number(chart.spot);
+  const bars = [...chart.bars].sort((a, b) => b.strike - a.strike);
+  let maxAbs = 1;
+  bars.forEach((b) => {
+    const right = metric === "oi" ? Number(b.call_oi) : Math.max(0, Number(b.net_gex_usd));
+    const left = metric === "oi" ? Number(b.put_oi) : Math.max(0, -Number(b.net_gex_usd));
+    maxAbs = Math.max(maxAbs, right, left);
+  });
+  let spotInserted = false;
+  const rowsHtml = [];
+  bars.forEach((b) => {
+    if (!spotInserted && Number.isFinite(spot) && spot > Number(b.strike)) {
+      rowsHtml.push(`<div class="gx-spot">— 现价 $${spot} —</div>`);
+      spotInserted = true;
+    }
+    let rightVal, leftVal;
+    if (metric === "oi") { rightVal = Number(b.call_oi); leftVal = Number(b.put_oi); }
+    else { const n = Number(b.net_gex_usd); rightVal = Math.max(0, n); leftVal = Math.max(0, -n); }
+    const rightW = Math.round((rightVal / maxAbs) * 48);
+    const leftW = Math.round((leftVal / maxAbs) * 48);
+    const marks = [];
+    if (Number(b.strike) === Number(chart.call_wall)) marks.push("Call GEX 峰");
+    if (Number(b.strike) === Number(chart.put_wall)) marks.push("Put GEX 峰");
+    const tip = `strike $${b.strike} | netGEX $${(Number(b.net_gex_usd) / 1e6).toFixed(1)}M | callGEX $${(Number(b.call_gex_usd) / 1e6).toFixed(1)}M | putGEX $${(Number(b.put_gex_usd) / 1e6).toFixed(1)}M | callOI ${fmtShares(b.call_oi)} | putOI ${fmtShares(b.put_oi)}`;
+    rowsHtml.push(`
+      <div class="gx-row" title="${escapeHtml(tip)}">
+        <span class="gx-strike">$${escapeHtml(b.strike)}${marks.length ? ` <span class="pill">${marks.join("·")}</span>` : ""}</span>
+        <span class="gx-track">
+          <span class="gx-left"><span class="gx-bar gx-put" style="width:${leftW}%"></span></span>
+          <span class="gx-center"></span>
+          <span class="gx-right"><span class="gx-bar gx-call" style="width:${rightW}%"></span></span>
+        </span>
+      </div>`);
+  });
+  if (!spotInserted && Number.isFinite(spot)) rowsHtml.push(`<div class="gx-spot">— 现价 $${spot} —</div>`);
+  const legend = metric === "oi"
+    ? '<span class="lb-call-dot"></span>call OI <span class="lb-put-dot"></span>put OI'
+    : '<span class="lb-call-dot"></span>净 GEX 估算为正<span class="lb-put-dot"></span>净 GEX 估算为负';
+  const regimeZh = idx.regime === "positive_gamma" ? "OI 模型净 GEX 为正" : idx.regime === "negative_gamma" ? "OI 模型净 GEX 为负" : "—";
+  const netTotal = idx.net_gex_usd != null ? `$${(Number(idx.net_gex_usd) / 1e9).toFixed(2)}B` : "n/a";
+  const quoteTime = idx.as_of ? String(idx.as_of).replace("T", " ") : "源时间不可用";
+  const callPeak = idx.call_wall != null ? `$${idx.call_wall}` : "n/a";
+  const putPeak = idx.put_wall != null ? `$${idx.put_wall}` : "n/a";
+  return `
+    <section class="row gamma-panel">
+      <div class="gamma-heading">
+        <div class="row-title">${escapeHtml(which)} · 期权 Gamma 暴露（按 strike）</div>
+        <span class="ev warn">${escapeHtml(regimeZh)}</span>
+      </div>
+      ${controls}
+      <div class="gamma-meta">
+        <span>现价 <b>$${escapeHtml(chart.spot)}</b></span>
+        <span>净 GEX 估算 <b>${escapeHtml(netTotal)}</b><small>/ 标的变动 1%</small></span>
+        <span>Call GEX 峰值 <b>${escapeHtml(callPeak)}</b></span>
+        <span>Put GEX 峰值 <b>${escapeHtml(putPeak)}</b></span>
+        <span>源时间 <b>${escapeHtml(quoteTime)}</b></span>
+      </div>
+      <div class="gamma-legend">${legend}</div>
+      <div class="gamma-chart">${rowsHtml.join("")}</div>
+      <div class="gamma-note">${metric === "oi" ? "条形显示 call/put 未平仓合约数，不显示买卖方向。" : "条形显示现价下的净 GEX 估算：calls 正、puts 负是模型假设，不是真实做市商仓位。"} CBOE 报价有延迟；上方源时间不代表 OI 的更新时间。翻转位需要按假设价格重新估算整条期权链，本页暂不显示。</div>
+    </section>
+  `;
+}
+
+function bindGammaChart() {
+  document.querySelectorAll("[data-gamma-index]").forEach((btn) => {
+    btn.addEventListener("click", () => { state.gammaChart.index = btn.dataset.gammaIndex; renderMarket(); });
+  });
+  document.querySelectorAll("[data-gamma-metric]").forEach((btn) => {
+    btn.addEventListener("click", () => { state.gammaChart.metric = btn.dataset.gammaMetric; renderMarket(); });
+  });
+}
+
 function renderMarket() {
   const regime = state.brief?.market_regime;
   const conclusion = state.brief?.market_conclusion_zh || {};
   if (!regime) {
-    elements.contentArea.innerHTML = '<div class="empty">宏观状态还没有加载。</div>';
+    elements.contentArea.innerHTML = `${marketStructureSection()}${renderGammaByStrike()}<div class="empty">宏观状态还没有加载。</div>`;
+    bindGammaChart();
     return;
   }
   const metrics = (regime.metrics || []).map((metric) => `
@@ -1327,7 +1992,7 @@ function renderMarket() {
   `).join("");
   const events = (regime.events || []).slice(0, 8).map((event) => `
     <article class="row">
-      <a href="${escapeHtml(event.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(event.title || "Untitled")}</a>
+      <a href="${safeArticleHref(event.link) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(event.title || "Untitled")}</a>
       <div class="row-meta">
         <span>${escapeHtml(event.source || "unknown")}</span>
         ${event.policy_importance ? `<span>importance=${escapeHtml(event.policy_importance)}/3</span>` : ""}
@@ -1336,6 +2001,8 @@ function renderMarket() {
     </article>
   `).join("");
   elements.contentArea.innerHTML = `
+    ${marketStructureSection()}
+    ${renderGammaByStrike()}
     <section class="macro-hero ${escapeHtml(regime.regime || "neutral")}">
       <div>
         <div class="row-title">
@@ -1357,6 +2024,7 @@ function renderMarket() {
     <section class="section-head"><div><h3>政策/宏观事件</h3><p>用于解释市场背景，不直接替代个股研究。</p></div></section>
     <section class="source-grid">${events || '<div class="empty">暂无宏观事件。</div>'}</section>
   `;
+  bindGammaChart();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1371,7 +2039,7 @@ function renderProcess() {
     const timing = article.timeliness || {};
     return `
       <article class="row">
-        <a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.title || "Untitled")}</a>
+        <a href="${safeArticleHref(article.link) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(article.title || "Untitled")}</a>
         <div class="row-meta">
           <span>来源=${escapeHtml(article.source || "unknown")}</span>
           <span>信任权重=${Number(article.source_trust || 0).toFixed(2)}</span>
@@ -1399,7 +2067,7 @@ function renderSources() {
       <div class="source-grid">
         ${rows.map((source) => `
           <article class="row source-row">
-            <a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">${escapeHtml(source.name)}</a>
+            <a href="${safeArticleHref(source.url) || "#"}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.name)}</a>
             <div class="row-meta">
               <span>type=${escapeHtml(source.type)}</span>
               ${source.trust !== undefined ? `<span>trust=${Number(source.trust || 0).toFixed(2)}</span>` : ""}
@@ -1504,7 +2172,7 @@ function renderSerenityCard(row) {
       </header>
       <div class="sc-cat">${escapeHtml(article.title || "")}</div>
       ${renderSerenityAlpha(row)}
-      <div class="topcall-catalyst"><a href="${escapeHtml(article.link || "#")}" target="_blank" rel="noreferrer">${escapeHtml(article.source || "")} · 打开原文 ↗</a></div>
+      <div class="topcall-catalyst">${safeArticleHref(article.link) ? `<a href="${safeArticleHref(article.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(article.source || "")} · 打开原文 ↗</a>` : ""}</div>
     </article>
   `;
 }
@@ -1807,6 +2475,27 @@ if (exportButton) {
 elements.tabs.forEach((tab) => {
   tab.addEventListener("click", () => setView(tab.dataset.view));
 });
+
+document.querySelector("#languageToggle").addEventListener("click", () => {
+  locale = locale === "en" ? "zh-CN" : "en";
+  try {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale === "en" ? "en" : "zh-CN");
+  } catch {
+    // The switch still works for this page when browser storage is restricted.
+  }
+  applyLocale();
+});
+
+const localeObserver = new MutationObserver((mutations) => {
+  const roots = new Set();
+  for (const mutation of mutations) {
+    if (mutation.type === "characterData") roots.add(mutation.target);
+    else if (mutation.target instanceof Element) roots.add(mutation.target);
+  }
+  roots.forEach((root) => localizeSubtree(root));
+});
+localeObserver.observe(document.body, { childList: true, characterData: true, subtree: true });
+applyLocale();
 
 window.addEventListener("hashchange", () => {
   const nextView = initialView();

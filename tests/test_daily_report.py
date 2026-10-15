@@ -79,3 +79,15 @@ def test_handles_empty_brief():
     md = render_daily_report({})
     assert "每日投研简报" in md
     assert "本轮无达到阈值的机会" in md
+
+
+def test_daily_report_uses_diverse_digest_and_shows_related_update():
+    brief = _brief()
+    lead = dict(brief["analyst_report"][0])
+    lead["related_update_count"] = 1
+    lead["related_updates"] = [{"source": "SEC", "title": "Additional filing", "link": "https://x/3"}]
+    brief["digest_items"] = [lead]
+    md = render_daily_report(brief)
+    assert "Additional filing" in md
+    assert "https://x/3" in md
+    assert "Penny Co" not in md.split("## 三、")[0]

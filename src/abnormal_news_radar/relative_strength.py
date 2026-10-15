@@ -55,13 +55,15 @@ def assess_relative_strength(
         return _unavailable("", "missing ticker")
     fetch = fetcher or _fetch_text
 
-    closes, volumes = _daily_series(symbol, fetch)
+    closes, volumes, fetch_failed = _daily_series(symbol, fetch)
+    if fetch_failed:
+        return _unavailable(symbol, "价格数据源暂时不可用（Yahoo 限流或网络波动），稍后重试")
     if len(closes) < 60:
-        return _unavailable(symbol, "历史价格不足 60 个交易日")
+        return _unavailable(symbol, f"历史价格仅 {len(closes)} 个交易日，不足 60 天（可能是次新股或停牌）")
 
     etf = sector_etf.strip().upper() or _sector_etf(symbol, profile_fetcher)
-    sector_closes, _ = _daily_series(etf, fetch) if etf else ([], [])
-    spy_closes, _ = _daily_series(BENCHMARK, fetch)
+    sector_closes = _daily_series(etf, fetch)[0] if etf else []
+    spy_closes = _daily_series(BENCHMARK, fetch)[0]
 
     trend = _trend_state(closes, volumes)
     attribution = _attribution(symbol, closes, etf, sector_closes, spy_closes)
@@ -77,9 +79,15 @@ def assess_relative_strength(
     }
 
 
-def _daily_series(symbol: str, fetch: object) -> tuple[list[float], list[float]]:
+def _daily_series(symbol: str, fetch: object) -> tuple[list[float], list[float], bool]:
+    """Return ``(closes, volumes, fetch_failed)``.
+
+    ``fetch_failed`` distinguishes a transport error (Yahoo rate-limit /
+    network) from a genuinely short or empty series, so the caller can give an
+    honest reason instead of conflating both as "insufficient history".
+    """
     if not symbol:
-        return [], []
+        return [], [], False
     url = CHART_URL.format(ticker=quote(symbol))
     try:
         payload = json.loads(fetch(url))  # type: ignore[operator]
@@ -90,7 +98,7 @@ def _daily_series(symbol: str, fetch: object) -> tuple[list[float], list[float]]
         meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
     except Exception as exc:  # noqa: BLE001 - one missing series degrades, not breaks.
         logger.warning("chart fetch failed for %s: %s", symbol, exc)
-        return [], []
+        return [], [], True
     closes, volumes = [], []
     for close, volume in zip(raw_closes, raw_volumes, strict=False):
         if close is None:
@@ -104,7 +112,7 @@ def _daily_series(symbol: str, fetch: object) -> tuple[list[float], list[float]]
         if isinstance(live, (int, float)) and float(live) > 0:
             closes.append(float(live))
             volumes.append(float(meta.get("regularMarketVolume") or 0))
-    return closes, volumes
+    return closes, volumes, False
 
 
 def _sector_etf(symbol: str, profile_fetcher: object | None) -> str:
@@ -321,4 +329,7 @@ def _unavailable(symbol: str, reason: str) -> dict[str, object]:
 
 
 def _fetch_text(url: str) -> str:
-    return fetch_text(url, accept="application/json", timeout=15)
+    # A diagnosis fires a burst of Yahoo calls (ticker + sector ETF + SPY +
+    # VIX + short interest); extra retries let a transient 429 self-heal
+    # instead of surfacing as a fake "insufficient history".
+    return fetch_text(url, accept="application/json", timeout=15, retries=3)

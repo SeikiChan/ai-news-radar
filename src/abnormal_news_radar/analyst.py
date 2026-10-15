@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from .timeliness import parse_datetime
+
 DEFAULT_MIN_SCORE = 10.0
 DEFAULT_LIMIT_PER_SOURCE = 40
 DEFAULT_SIGNAL_LIMIT = 40
@@ -33,7 +35,8 @@ def build_daily_brief(
     market_regime: dict[str, object] | None = None,
     earnings_calendar: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    report_items = _analyst_report_items(candidates)
+    report_items = [item for item in _analyst_report_items(candidates) if _is_recent_for_brief(item)]
+    digest_items = select_digest_items(report_items)
     urgent = [item for item in report_items if item.get("action") == "research_now"]
     regime = market_regime or _disconnected_market_regime()
     earnings = earnings_calendar or _disconnected_earnings_calendar()
@@ -42,8 +45,8 @@ def build_daily_brief(
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "headline": _headline(len(signals), len(candidates), len(urgent)),
-        "headline_zh": _headline_zh(len(signals), len(candidates), len(urgent)),
+        "headline": _headline(len(signals), len(report_items), len(urgent)),
+        "headline_zh": _headline_zh(len(signals), len(report_items), len(urgent)),
         "counts": {
             "sources": source_count,
             "market_sources": market_source_count,
@@ -75,6 +78,7 @@ def build_daily_brief(
         ],
         "review_queue": report_items,
         "analyst_report": report_items,
+        "digest_items": digest_items,
         "dynamic_watchlist": dynamic_watchlist,
         "market_regime": regime,
         "earnings_calendar": earnings,
@@ -154,8 +158,70 @@ def _analyst_report_items(candidates: list[dict[str, object]]) -> list[dict[str,
         row["missing_confirmations"] = _missing_confirmations(row)
         row["analyst_take"] = _analyst_take(row)
         rows.append(row)
-    rows.sort(key=lambda item: (float(item.get("score", 0)), str(item.get("status") == "discovered")), reverse=True)
+    action_priority = {"research_now": 3, "track": 2, "identify_then_monitor": 1, "monitor": 0}
+    rows.sort(
+        key=lambda item: (
+            action_priority.get(str(item.get("action")), 0),
+            float(item.get("score", 0)),
+            str(item.get("status") == "discovered"),
+        ),
+        reverse=True,
+    )
     return rows
+
+
+def select_digest_items(rows: list[dict[str, object]], limit: int = 12) -> list[dict[str, object]]:
+    """Select one lead per company while retaining links to its other updates.
+
+    The analyst report remains the complete ranked queue. A digest is a reading
+    surface, so repeated coverage of one company must not consume every slot.
+    We deliberately do not infer that different articles describe the same event.
+    """
+    if limit <= 0:
+        return []
+
+    groups: dict[str, list[dict[str, object]]] = {}
+    for index, row in enumerate(rows):
+        tickers = row.get("tickers")
+        ticker = str(tickers[0]).strip().upper() if isinstance(tickers, (list, tuple)) and tickers else ""
+        name = str(row.get("company_name") or "").strip().casefold()
+        # Unknown entities must not be collapsed into one anonymous company.
+        key = f"ticker:{ticker}" if ticker else f"name:{name}" if name else f"row:{index}"
+        groups.setdefault(key, []).append(row)
+
+    selected = []
+    for group in list(groups.values())[:limit]:
+        lead = dict(group[0])
+        updates = []
+        for item in group[1:4]:
+            article = item.get("article")
+            article = article if isinstance(article, dict) else {}
+            updates.append({
+                "title": str(article.get("title") or ""),
+                "source": str(article.get("source") or ""),
+                "link": str(article.get("link") or ""),
+                "score": item.get("score"),
+            })
+        lead["related_update_count"] = len(group) - 1
+        lead["related_updates"] = updates
+        selected.append(lead)
+    return selected
+
+
+def _is_recent_for_brief(row: dict[str, object], now: datetime | None = None) -> bool:
+    """Use publication time when available; otherwise use first retrieval time."""
+    article = row.get("article")
+    if not isinstance(article, dict):
+        return True  # Legacy rows without article metadata cannot be dated.
+    published = parse_datetime(str(article.get("published") or ""))
+    fetched = parse_datetime(str(row.get("first_seen_at") or article.get("fetched_at") or ""))
+    observed = published or fetched
+    if observed is None:
+        return True
+    if now is None:
+        now = datetime.now(timezone.utc)
+    age = (now.astimezone(timezone.utc) - observed).total_seconds()
+    return -3600 <= age <= 72 * 3600
 
 
 def _action(score: float, status: str) -> str:

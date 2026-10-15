@@ -20,7 +20,7 @@
 - **包布局**：源码在 `src/abnormal_news_radar/`，经 `src` 包导入（如 `from src.abnormal_news_radar.x import y`）。测试在 `tests/`。
 - **跑测试 / lint**（务必在改动后跑）：
   ```
-  .venv/Scripts/python.exe -m pytest        # 当前 185 passed
+  .venv/Scripts/python.exe -m pytest        # 当前 211 passed
   .venv/Scripts/ruff.exe check src tests    # 必须 clean
   node --check src/abnormal_news_radar/web_static/app.js  # 前端语法
   ```
@@ -120,6 +120,34 @@
 ## 5. 变更历史（按主题，最新在前）
 
 > 注：仓库以 `V0.1…V0.8` 递增提交。以下按**功能主题**归纳本轮大修内容（跨多个 commit）。
+
+### 大盘 Gamma 逐 strike 横条图（2026-06-15）
+- **`gamma._strike_gamma_chart`**：现价 ±12% 内每个 strike 一行，聚合 call/put/net GEX + call/put OI + 成交量（最多 40 个最近 strike），带 spot/flip/call 墙/put 墙参考位。新增 `strike_chart` 字段，不动既有 `gex`/`strike_map`。
+- **`market_structure._index_brief`** 透传 `strike_chart` + `net_gex_usd`，宏观页可画 SPY/QQQ 两个指数。
+- **前端 SpotGamma 式横条图**：宏观页新增「大盘 Gamma 分布（按 strike）」——发散横条(正 GEX 绿色向右/负 GEX 红色向左)、strike 纵向梯子、现价虚线、call/put 墙标记；SPY↔QQQ 与 Net GEX↔未平仓 OI 双切换；悬停看该 strike 的 call/put GEX 与 OI 明细。实测 SPY 现价上方绿(call gamma)、下方红(put gamma)，形态正确。
+
+### 上云就绪：登录鉴权 + Docker + 部署手册（2026-06-15）
+- **登录鉴权**：web 服务器加 HTTP Basic 密码门（`AI_NEWS_RADAR_PASSWORD` / `AI_NEWS_RADAR_USER`，常量时间比较）。**防裸奔硬保护**：绑定到非 localhost 接口却没设密码时 `serve()` 直接拒绝启动。本机使用不受影响（无密码=无门）。判定逻辑抽成纯函数 `check_basic_auth` 便于测试。
+- **Docker 打包**：`Dockerfile`（python:3.12-slim，`-e .` 安装，`/app/data` 持久卷）+ `.dockerignore`，一份镜像可部署到任何平台。
+- **部署手册** `docs/cloud_deploy.md`：Fly.io（自动 HTTPS + 持久卷，$0–3/月）和 VPS+Caddy（最可控，$4–6/月）两条路径的可复制步骤；诚实标注**数据中心 IP 会被 Yahoo 限流**（CBOE/FINRA/SEC 核心数据不受影响），给出住宅代理/换源的分档缓解方案。
+- 验证：实测拒绝无密码公网绑定、错误凭据 401、正确凭据 200。
+
+### Bug 修复：误报"历史价格不足"（2026-06-10）
+- 根因：`relative_strength._daily_series` 在 Yahoo **限流(429)** 和**真实数据短**两种情况都返回空列表，调用方统一报"历史价格不足 60 个交易日"——而 ORCL 等大盘股明明有 250+ 天历史。
+- 修复：`_daily_series` 增加 `fetch_failed` 返回值区分二者；限流时报"价格数据源暂时不可用…稍后重试"并标 `retryable`；真实短历史时报实际天数。图表抓取重试次数提到 3 次让突发 429 自愈；web 端不缓存 retryable 失败（否则一次抖动卡住 10 分钟）。
+
+### 作战台升级：大盘背景 + 点位地图 + 行动剧本 + 栏目互通（2026-06-10）
+- **`market_structure.py` 大盘结构**：SPY/QQQ 全链 GEX（复用 gamma.py）+ FINRA **全市场**卖空占比聚合（`positioning.assess_market_positioning`，对整个日度文件求和）+ VIX → 输出 friendly/neutral/hostile 大盘姿态。`GET /api/market_structure`（30 分钟缓存），显示在宏观页和诊断页顶部。
+- **Strike 地图**：gamma.py 新增 `strike_map`——按未平仓和当日成交聚合各点位（call/put 拆分），标出 call 墙 / put 墙 / 今日最热点位；诊断页画成梯子图（现价虚线插在中间），财报页期权卡显示摘要行。回答"哪个点位未平仓最多/买入最多"。
+- **行动剧本（diagnose.action_plan）**：每次诊断输出仓位姿态（参与/观察/不参与）+ 关键价位表（put wall 支撑、gamma 翻转位、20DMA、call wall 阻力，全部带中文解释）+ 条件→动作 playbook（买入触发、失效条件、第一目标），并按大盘姿态自动调整严格度（hostile → 触发需连续 2 收盘确认、仓位上限减半）。带免责声明：研究框架非投资指令。
+- **栏目互通**：机会清单详情行新增「⚕ 错杀诊断 →」「📊 财报工作台 →」按钮直跳对应标的；诊断页嵌大盘背景条；/api/diagnose 复用大盘缓存。
+- **13F 进度条**：`find_institutional_holders` 接受 progress 回调（检索→解析信息表 i/n→对比上一季 i/n→完成），web 经 `GET /api/holders_progress?ticker=` 暴露，前端 1.5s 轮询渲染真实进度条。
+
+### 财报工作台升级：从数据陈列到判断辅助（2026-06-10）
+- **本季判读卡**：`financials._revenue_trend` 用 SEC 单季营收算近 8 季 YoY（按相隔一年的季度配对，不受财年错位影响），输出加速/减速/平稳/转负的中文 verdict + 迷你柱状图。NVDA 实测：「营收同比 +85.2%，连续 2 季加速」。
+- **8-K 事件中文标签**：`fetch_recent_filings` 读取 submissions API 的 `items` 字段，映射 22 个 item 代码（2.01 完成收购、1.01 重大协议、5.02 高管变动、2.06 资产减值、4.02 财报重述等），非例行事件高亮。回答"收购了什么写没说"。
+- **13F 加减仓对比**：`reverse_13f._attach_qoq_change` 对前 12 大持仓机构解析其**上一份** 13F 信息表并 diff 股数 → 新建仓/加仓/减仓/不变 标签 + 汇总（"5 家加仓、4 家减仓"）。每家多 3 个请求，失败降级为 unknown 不破坏结果。
+- **期权结构卡**：`GET /api/options_structure?ticker=`（30 分钟缓存）复用 gamma.py，财报详情按需显示 GEX 状态/翻转位/call-put wall/P-C 比/IV30/期限倒挂——财报前 IV 倒挂即期权市场对本次财报波动的定价。
 
 ### 个股诊断层（错杀分析，2026-06-10）
 - **产品翻转**：新增 ticker 为中心的诊断入口（此前只有"新闻→候选"单向流，无法主动诊断一只怀疑被错杀的股票）。CLI `diagnose TICKER [--json]`、Web「诊断 Diagnose」标签页、`GET /api/diagnose?ticker=X`（10 分钟缓存）。

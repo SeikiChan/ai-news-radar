@@ -5,6 +5,7 @@ from src.abnormal_news_radar.financials import (
     _gross_margin_trend,
     _latest_instant_musd,
     _latest_quarterly_musd,
+    _revenue_trend,
     _ttm_revenue_musd,
     enrich_candidates_with_financial_snapshots,
     fetch_financial_snapshot,
@@ -22,6 +23,7 @@ class RecentFilingsTests(unittest.TestCase):
                 "accessionNumber": ["0001045810-26-000052", "0001045810-26-000051", "x", "0001045810-26-000010"],
                 "primaryDocument": ["nvda-20260426.htm", "nvda-8k.htm", "form4.xml", "nvda-10k.htm"],
                 "primaryDocDescription": ["10-Q", "8-K", "FORM 4", "10-K"],
+                "items": ["", "2.01,5.02,9.01", "", ""],
             }}
         })
 
@@ -38,6 +40,16 @@ class RecentFilingsTests(unittest.TestCase):
         def boom(_url):
             raise RuntimeError("429")
         self.assertEqual(fetch_recent_filings(123, fetcher=boom), [])
+
+    def test_8k_items_mapped_to_chinese_labels(self):
+        filings = fetch_recent_filings(1045810, fetcher=lambda _url: self._submissions())
+        eight_k = next(f for f in filings if f["form"] == "8-K")
+        labels = {item["label_zh"]: item["notable"] for item in eight_k["items_zh"]}
+        self.assertEqual(labels["完成收购或资产出售"], True)
+        self.assertEqual(labels["董事/高管变动"], True)
+        self.assertEqual(labels["财务报表与附件"], False)  # routine, not a red flag
+        # Non-8-K filings carry no item labels.
+        self.assertEqual(next(f for f in filings if f["form"] == "10-Q")["items_zh"], [])
 
 
 def _q(start, end, val):
@@ -81,6 +93,44 @@ class FinancialSeriesTests(unittest.TestCase):
         self.assertEqual(
             _latest_quarterly_musd(self._facts(), ("NetCashProvidedByUsedInOperatingActivities",)), -30.0
         )
+
+
+class RevenueTrendTests(unittest.TestCase):
+    def _facts_two_years(self, y2):
+        rows = [
+            _q("2024-01-01", "2024-03-31", 100_000_000),
+            _q("2024-04-01", "2024-06-30", 100_000_000),
+            _q("2024-07-01", "2024-09-30", 100_000_000),
+            _q("2024-10-01", "2024-12-31", 100_000_000),
+            _q("2025-01-01", "2025-03-31", y2[0]),
+            _q("2025-04-01", "2025-06-30", y2[1]),
+            _q("2025-07-01", "2025-09-30", y2[2]),
+            _q("2025-10-01", "2025-12-31", y2[3]),
+        ]
+        return {"Revenues": {"units": {"USD": rows}}}
+
+    def test_accelerating_revenue_detected(self):
+        facts = self._facts_two_years([110_000_000, 120_000_000, 135_000_000, 160_000_000])
+        trend = _revenue_trend(facts)
+        self.assertEqual(trend["status"], "ok")
+        self.assertEqual(trend["verdict"], "accelerating")
+        self.assertEqual(trend["quarters"][-1]["yoy_pct"], 60.0)
+        self.assertIn("加速", trend["verdict_zh"])
+
+    def test_decelerating_revenue_detected(self):
+        facts = self._facts_two_years([160_000_000, 135_000_000, 120_000_000, 105_000_000])
+        trend = _revenue_trend(facts)
+        self.assertEqual(trend["verdict"], "decelerating")
+        self.assertIn("减速", trend["verdict_zh"])
+
+    def test_negative_yoy_is_declining(self):
+        facts = self._facts_two_years([100_000_000, 95_000_000, 92_000_000, 88_000_000])
+        trend = _revenue_trend(facts)
+        self.assertEqual(trend["verdict"], "declining")
+
+    def test_insufficient_history(self):
+        facts = {"Revenues": {"units": {"USD": [_q("2025-10-01", "2025-12-31", 100_000_000)]}}}
+        self.assertEqual(_revenue_trend(facts)["status"], "insufficient")
 
 
 class FinancialSnapshotTests(unittest.TestCase):

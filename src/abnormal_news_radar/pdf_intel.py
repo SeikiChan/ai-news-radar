@@ -154,9 +154,16 @@ def _excerpt(text: str) -> str:
 
 
 def _pypdf_extract(data: bytes, max_pages: int) -> tuple[str, int]:
+    import logging
     from io import BytesIO
 
     from pypdf import PdfReader  # imported lazily so the module loads without pypdf
+
+    # Malformed-but-recoverable PDFs make pypdf emit one WARNING per broken
+    # xref pointer ("Ignoring wrong pointing object ..."), flooding the scan
+    # log. pypdf still extracts the text; real failures raise and are reported
+    # as status=unavailable, so these per-object warnings carry no information.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
 
     reader = PdfReader(BytesIO(data))
     parts: list[str] = []

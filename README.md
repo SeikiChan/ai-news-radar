@@ -1,154 +1,132 @@
 # AI News Radar
 
-Open-source financial news radar for finding early hard signals before a theme becomes consensus.
+**A local-first research terminal for finding public evidence behind emerging market themes.**
 
-The project is intentionally not a Bloomberg clone. The first version focuses on one job:
+[简体中文](README.zh-CN.md) · [Signal model](docs/signal_model.md) · [Product brief](docs/product_brief.md)
 
-> detect public news items that may indicate early order flow, supply-chain bottlenecks, capacity reservations, or new AI infrastructure demand before the market fully reprices a company.
+[![CI](https://github.com/SeikiChan/ai-news-radar/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/SeikiChan/ai-news-radar/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-## MVP
+> **Research use only — not investment advice.** Data can be delayed or incorrect. Verify important information against its original source.
 
-- Pull public RSS/Atom feeds.
-- Monitor selected company IR / press-release pages that do not publish RSS.
-- Match articles against a focused watchlist.
-- Score hard signals such as:
-  - `prepayment`
-  - `capacity reservation`
-  - `mass production`
-  - `production qualification`
-  - `manufacturing readiness`
-  - `design win`
-  - `lifecycle revenue`
-  - `book-to-bill`
-  - `hyperscale customer`
-  - `qualification to production`
-  - `supply constrained`
-  - `multi-year agreement`
-  - `data center demand`
-  - `AI customer`
-  - `new product ramp`
-- Save scored events to `data/signals.jsonl`.
-- Print a compact terminal report.
+AI News Radar monitors public company, market, and technology sources, then organizes potential business signals into a reviewable research workflow. It is designed to help an analyst move from a broad theme to verifiable evidence such as customer orders, production qualification, capacity commitments, or disclosed demand.
 
-## Run
+The application runs on your computer. It does not require a hosted account, database, or paid data subscription for its core workflow.
 
-The runtime is standard-library only except for `tzdata` (required so the
-market-hours scheduler can resolve `America/New_York` on Windows). Install it
-once, or install the package, then run:
+![AI News Radar dashboard using illustrative demo data](docs/assets/dashboard-demo-zh.png)
 
-```powershell
-cd C:\Users\Allen\ai-news-radar
-pip install -e .            # pulls tzdata and registers console commands
+*Dashboard preview. The screenshot uses illustrative demo content, not live market data.*
+
+## What it does
+
+- Collects public RSS/Atom feeds and selected company investor-relations pages.
+- Scores evidence with transparent rules and conservative company matching.
+- Finds candidate companies beyond the configured seed watchlist.
+- Builds a 72-hour research brief with linked source material and visible data gaps.
+- Adds market, filings, financial, earnings, options, positioning, and technology context when a source is available.
+- Provides a bilingual Chinese/English web interface, local review state, CLI reports, and Markdown/JSON exports.
+- Includes forward-return reporting to help inspect how scored signals performed over time. Historical results do not predict future outcomes.
+
+The workflow favors traceable evidence over alert volume:
+
+1. Collect public articles and disclosures.
+2. Identify business evidence and possible company matches.
+3. Add available market and company context.
+4. Review the original source before drawing a conclusion.
+5. Compare historical scores with subsequent returns.
+
+See [docs/signal_model.md](docs/signal_model.md) for scoring rules and false-positive controls.
+
+## Run locally
+
+Download the repository as a ZIP and extract it, or clone it with Git. Run the commands from the project directory. The supported distribution for now is the source repository; the application uses the checked-in [config files](config/) and writes its runtime data beside the source. If you use the ZIP, extract it first and skip the clone and cd commands below.
+
+**Requirements:** Python 3.10 or newer. The automated test matrix covers Python 3.10 and 3.12 on Windows and Ubuntu.
+
+### Windows PowerShell
+
+~~~~powershell
+git clone https://github.com/SeikiChan/ai-news-radar.git
+cd ai-news-radar
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+ai-news-radar web
+~~~~
+
+### macOS or Linux
+
+~~~~bash
+git clone https://github.com/SeikiChan/ai-news-radar.git
+cd ai-news-radar
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+ai-news-radar web
+~~~~
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The first run starts a source scan; it may take several minutes depending on network and provider response times. Stop the local server with **Ctrl+C**. On Windows, AI News Radar.cmd is also available as a double-click launcher.
+
+### Command-line tasks
+
+~~~~bash
 ai-news-radar scan --limit 40
-# or, without installing:
-python -m src.abnormal_news_radar scan --limit 40
-```
+ai-news-radar report
+ai-news-radar report --json
+ai-news-radar daily --scan --export-dir reports
+~~~~
 
-Date-scoped public feeds use `{yyyy}` / `{yyyymm}` / `{yyyymmdd}` templates in
-`config/sources.json` (resolved against the U.S. Eastern calendar at fetch
-time), so feeds like the Treasury yield curve never break at a month boundary.
+## Configuration and local data
 
-## Validate the Signal Model
+- Edit [config/sources.json](config/sources.json) to configure feeds and public market sources.
+- Edit [config/watchlist.json](config/watchlist.json) to change the seed companies, aliases, and themes.
+- Runtime history, review decisions, market snapshots, and downloaded caches are stored under <code>data/</code>. Daily exports are written to <code>reports/</code>.
+- Runtime data and local browser-test artifacts are excluded by [.gitignore](.gitignore); they stay on the computer running the application.
+- Environment variables are read from the process environment. The project does **not** automatically load a <code>.env</code> file. See [.env.example](.env.example) for supported variable names.
 
-The radar is only useful if higher-scored signals actually precede higher
-forward returns. The `report` command backtests every stored signal/candidate
-against its forward price move and the excess over SPY, anchored on the day the
-item was first seen:
+For SEC requests, set a descriptive User-Agent with a real contact address in the current shell before launching the app.
 
-```powershell
-ai-news-radar report            # table by band x horizon (+1d / +5d / +20d)
-ai-news-radar report --json     # raw report for further analysis
-```
+PowerShell:
 
-It shows, per alert band, the matured sample size, hit rate (share with
-positive excess), and mean excess return, plus a calibration check for whether
-`hard >= watch >= weak` holds. Longer horizons only populate once enough
-trading days have elapsed since the signal, so the edge estimate sharpens over
-time rather than from a single scan.
+~~~~powershell
+$env:AI_NEWS_RADAR_USER_AGENT = "AI News Radar/0.2 (contact: you@example.com)"
+~~~~
 
-## Local Web Terminal
+macOS or Linux:
 
-Double-click `AI News Radar.cmd`, or run:
+~~~~bash
+export AI_NEWS_RADAR_USER_AGENT="AI News Radar/0.2 (contact: you@example.com)"
+~~~~
 
-```powershell
-cd C:\Users\Allen\ai-news-radar
-python -m src.abnormal_news_radar web --port 8765
-```
+Free public endpoints can be rate-limited, delayed, or temporarily unavailable. A missing value is shown as unavailable where possible; source coverage and freshness vary. Review the linked original material and the source provider's terms before relying on any result.
 
-Open `http://127.0.0.1:8765`.
+## Local access and security
 
-The web terminal runs an automatic scan at startup and refreshes the browser dashboard every 60 seconds.
-
-The terminal is organized around the daily analyst workflow:
-
-- `Brief`: morning-style summary, review count, active modules, and data gaps.
-- `Market`: macro regime placeholder for public rates, inflation, growth, energy, and liquidity feeds.
-- `Opportunities`: unified analyst output with candidates, action labels, evidence, state, and source links.
-- `Process`: the exact articles reviewed in the latest scan, grouped by source.
-- `Sources`: configured feeds, IR pages, and watchlist companies.
-
-## Project Shape
-
-```text
-config/
-  sources.json      Public feeds to scan.
-  watchlist.json    Companies, tickers, aliases, themes.
-docs/
-  product_brief.md  Why this exists and what it should catch.
-  signal_model.md   Scoring rules and false-positive rules.
-src/
-  abnormal_news_radar/
-    cli.py
-    feeds.py
-    model.py
-    scoring.py
-    storage.py
-    web.py
-    web_static/
-```
+The web server binds to 127.0.0.1 by default and is intended for local use. Binding to a non-local interface requires AI_NEWS_RADAR_PASSWORD. Do not expose the development server directly to the public internet. If you intentionally configure remote access, use a properly secured deployment with HTTPS and review the deployment guidance in [docs/cloud_deploy.md](docs/cloud_deploy.md).
 
 ## Development
 
-```powershell
+~~~~bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
-pytest            # run the test suite
+python -m pip install -e ".[dev]"
+python -m pytest
 ruff check src tests
-```
+node --check src/abnormal_news_radar/web_static/app.js
+~~~~
 
-CI (`.github/workflows/ci.yml`) runs the same lint + tests on Linux and Windows
-for Python 3.10 and 3.12. Copy `.env.example` to `.env` to set a real
-`User-Agent` contact string before heavy use.
+Continuous integration runs tests and lint on Windows and Ubuntu with Python 3.10 and 3.12.
 
-## Design Principle
+## Risk notice
 
-The system should prefer a small number of high-signal discoveries over a large stream of generic market news.
+AI News Radar is an independent software project for research and educational use. It does not provide investment, financial, tax, legal, or other professional advice. Nothing in the application is an offer or a recommendation to buy, sell, or hold any security or financial product.
 
-The watchlist is not the discovery boundary. It is only a seed and validation layer. The primary flow is:
+The application uses automated matching, scoring, and analysis over third-party public information. Data may be delayed, incomplete, inaccurate, unavailable, or attributed to the wrong company. Scores and classifications can be wrong. Backtests and past performance do not predict future results. Verify important facts against original, current sources, conduct your own research, and consult a qualified professional when appropriate. You are responsible for decisions made using the software.
 
-1. scan public evidence sources;
-2. score hard business evidence;
-3. infer candidate companies from high-evidence articles;
-4. classify candidates into research actions: research now, track, identify then monitor, or monitor;
-5. promote confirmed candidates into persistent watchlists after evidence and market confirmation.
+The software is provided “as is,” without warranties, to the extent permitted by applicable law. The authors and maintainers are not responsible for losses arising from its use, to the extent permitted by law. For general investor education, see the [SEC's investor resources](https://www.sec.gov/resources-investors).
 
-Bad alert:
+## License
 
-```text
-Company says AI demand is strong.
-```
-
-Good alert:
-
-```text
-Company received $290M customer prepayment tied to silicon photonics capacity.
-```
-
-## Next Milestones
-
-1. Add SEC 8-K and 10-Q item extraction.
-2. Add price/volume confirmation after each signal.
-3. Add durable SQLite storage for articles, source health, and signal history.
-4. Add X/Reddit/Substack social confirmation as secondary evidence only.
-5. Add weekly anomaly report and then a compact web terminal UI.
+Licensed under the [MIT License](LICENSE).

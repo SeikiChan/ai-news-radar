@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from urllib.request import Request, urlopen
 
 USER_AGENT = "AI-News-Radar/0.1 research-tool contact=local@example.com"
@@ -74,6 +74,7 @@ def fetch_recent_filings(
     accessions = recent.get("accessionNumber") or []
     documents = recent.get("primaryDocument") or []
     descriptions = recent.get("primaryDocDescription") or []
+    items_list = recent.get("items") or []
     cutoff = (date.today() - timedelta(days=max_age_days)).isoformat()
 
     out: list[dict[str, object]] = []
@@ -91,17 +92,62 @@ def fetch_recent_filings(
             if accession_nodash and document
             else f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={int(cik)}&type={form}"
         )
+        items = str(items_list[index]) if index < len(items_list) else ""
         out.append(
             {
                 "form": form,
                 "filed": filed[index] if index < len(filed) else "",
                 "report_date": reports[index] if index < len(reports) else "",
                 "description": descriptions[index] if index < len(descriptions) else "",
+                "items": items,
+                "items_zh": _8k_items_zh(items) if form == "8-K" else [],
                 "doc_url": doc_url,
             }
         )
         if len(out) >= limit:
             break
+    return out
+
+
+#: SEC 8-K item codes -> what actually happened (the filing list otherwise
+#: just says "重大事件" and the reader cannot tell an acquisition from a
+#: routine earnings release without opening the document).
+EIGHT_K_ITEMS_ZH = {
+    "1.01": "签订重大协议",
+    "1.02": "终止重大协议",
+    "1.03": "破产/接管",
+    "1.05": "重大网络安全事件",
+    "2.01": "完成收购或资产出售",
+    "2.02": "业绩发布",
+    "2.03": "新增重大债务",
+    "2.04": "债务加速到期/违约触发",
+    "2.05": "裁员/重组计划",
+    "2.06": "重大资产减值",
+    "3.01": "退市/不符合上市规则通知",
+    "3.02": "增发股票（未注册）",
+    "3.03": "股东权利变更",
+    "4.01": "更换审计师",
+    "4.02": "财报不可信（将重述）",
+    "5.01": "控制权变更",
+    "5.02": "董事/高管变动",
+    "5.03": "章程/财年变更",
+    "5.07": "股东大会投票结果",
+    "7.01": "Reg FD 自愿披露",
+    "8.01": "其他重大事件",
+    "9.01": "财务报表与附件",
+}
+
+#: Routine items that should not be highlighted as red flags.
+EIGHT_K_ROUTINE_ITEMS = {"2.02", "5.07", "7.01", "8.01", "9.01", "5.03"}
+
+
+def _8k_items_zh(items: str) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for code in (part.strip() for part in items.split(",") if part.strip()):
+        label = EIGHT_K_ITEMS_ZH.get(code)
+        if label is None:
+            continue
+        out.append({"code": code, "label_zh": label, "notable": code not in EIGHT_K_ROUTINE_ITEMS})
     return out
 
 
@@ -155,6 +201,7 @@ def fetch_financial_snapshot(
         cost_revenue = _latest_annual_fact(facts, COST_REVENUE_CONCEPTS)
         ttm_revenue_musd = _ttm_revenue_musd(facts)
         gross_margin_trend = _gross_margin_trend(facts)
+        revenue_trend = _revenue_trend(facts)
         cash_musd = _latest_instant_musd(facts, CASH_CONCEPTS)
         quarterly_ocf_musd = _latest_quarterly_musd(facts, OPERATING_CASH_FLOW_CONCEPTS)
         capital_allocation = {
@@ -203,6 +250,7 @@ def fetch_financial_snapshot(
         "ttm_revenue_musd": ttm_revenue_musd,
         "revenue_base_musd": ttm_revenue_musd if ttm_revenue_musd is not None else revenue_musd,
         "gross_margin_trend_pct": gross_margin_trend,
+        "revenue_trend": revenue_trend,
         "cash_musd": cash_musd,
         "quarterly_operating_cash_flow_musd": quarterly_ocf_musd,
         "capital_allocation_musd": capital_allocation,
@@ -334,6 +382,88 @@ def _ttm_or_annual_musd(facts: dict[str, object], concepts: tuple[str, ...]) -> 
         return _usd_to_millions(sum(float(row["value"]) for row in series[-4:]))
     annual = _latest_annual_fact(facts, concepts)
     return _usd_to_millions(float(annual["value"])) if annual else None
+
+
+def _revenue_trend(facts: dict[str, object]) -> dict[str, object]:
+    """Quarterly revenue with YoY growth and a plain-language verdict.
+
+    The raw number ("TTM revenue $229B") does not answer the question an
+    earnings reader actually has: is growth accelerating or decelerating?
+    YoY is computed against the quarter ending ~1 year earlier, so fiscal
+    calendars and seasonality do not distort it.
+    """
+    series = _quarterly_series(facts, REVENUE_CONCEPTS)
+    if len(series) < 2:
+        return {"status": "insufficient", "quarters": []}
+    by_end = {str(row["end"]): float(row["value"]) for row in series}
+    quarters: list[dict[str, object]] = []
+    for row in series[-8:]:
+        end = str(row["end"])
+        yoy = _yoy_pct(end, float(row["value"]), by_end)
+        quarters.append(
+            {
+                "end": end,
+                "revenue_musd": _usd_to_millions(float(row["value"])),
+                "yoy_pct": yoy,
+            }
+        )
+    yoys = [float(q["yoy_pct"]) for q in quarters if q["yoy_pct"] is not None]
+    verdict, verdict_zh = _trend_verdict(yoys)
+    return {
+        "status": "ok",
+        "quarters": quarters,
+        "verdict": verdict,
+        "verdict_zh": verdict_zh,
+    }
+
+
+def _yoy_pct(end: str, value: float, by_end: dict[str, float]) -> float | None:
+    """YoY against the quarter ending closest to one year before ``end``."""
+    try:
+        anchor = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    best: tuple[int, float] | None = None
+    for other_end, other_value in by_end.items():
+        try:
+            other = datetime.strptime(other_end, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        distance = abs((anchor - other).days - 365)
+        if distance <= 20 and (best is None or distance < best[0]):
+            best = (distance, other_value)
+    if best is None or best[1] == 0:
+        return None
+    return round((value / best[1] - 1) * 100, 1)
+
+
+def _trend_verdict(yoys: list[float]) -> tuple[str, str]:
+    if not yoys:
+        return "insufficient", "季度同比数据不足（公司可能更换了 XBRL 标签或上市不满一年）。"
+    latest = yoys[-1]
+    path = "→".join(f"{value:+.0f}%" for value in yoys[-3:])
+    if latest < 0:
+        return "declining", f"营收同比转负（{path}）——先确认是行业周期还是份额流失，错杀假设需要额外证据。"
+    if len(yoys) < 2:
+        return "stable", f"最新营收同比 {latest:+.1f}%，历史不足以判断加速度。"
+    prior = yoys[-2]
+    if latest >= prior + 2:
+        streak = _accel_streak(yoys)
+        streak_zh = f"连续 {streak} 季加速" if streak >= 2 else "较上季加速"
+        return "accelerating", f"营收同比 {latest:+.1f}%，{streak_zh}（{path}）——成长动能在增强。"
+    if latest <= prior - 2:
+        return "decelerating", f"营收同比 {latest:+.1f}%，较上季 {prior:+.1f}% 减速（{path}）——市场通常先杀估值，关注下季指引。"
+    return "stable", f"营收同比 {latest:+.1f}%，与上季基本持平（{path}）。"
+
+
+def _accel_streak(yoys: list[float]) -> int:
+    streak = 0
+    for index in range(len(yoys) - 1, 0, -1):
+        if yoys[index] >= yoys[index - 1] + 2:
+            streak += 1
+        else:
+            break
+    return streak
 
 
 def _gross_margin_trend(facts: dict[str, object]) -> list[float]:

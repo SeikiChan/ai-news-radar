@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hmac
 import json
+import os
 import threading
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -48,7 +51,7 @@ from .storage import (
 )
 from .technology_intel import enrich_candidates_with_technology_intel
 from .ticker_resolver import enrich_candidates_with_ticker_resolution
-from .timeliness import article_timeliness
+from .timeliness import article_timeliness, parse_datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_ROOT = Path(__file__).resolve().parent / "web_static"
@@ -91,12 +94,50 @@ LAST_EARNINGS_CALENDAR: dict[str, object] = {
 }
 
 
+#: Password gate for public/cloud exposure. Read once at import from the
+#: environment so a deployment sets it via AI_NEWS_RADAR_PASSWORD. Username is
+#: optional (defaults to "admin"). When empty, auth is disabled (local use).
+AUTH_USER = os.environ.get("AI_NEWS_RADAR_USER", "admin")
+AUTH_PASSWORD = os.environ.get("AI_NEWS_RADAR_PASSWORD", "")
+
+
+def _is_local_host(host: str) -> bool:
+    return host in {"127.0.0.1", "::1", "localhost", ""}
+
+
+def check_basic_auth(header_value: str, user: str, password: str) -> bool:
+    """True if an ``Authorization: Basic ...`` header matches user+password.
+
+    Pure and timing-safe (constant-time compares) so the gate is unit-testable
+    without spinning up the HTTP server.
+    """
+    if not password:  # auth disabled
+        return True
+    if not header_value.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header_value[6:]).decode("utf-8")
+        got_user, _, got_password = decoded.partition(":")
+    except Exception:  # noqa: BLE001 - malformed header -> unauthorized.
+        return False
+    return hmac.compare_digest(got_user, user) and hmac.compare_digest(got_password, password)
+
+
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
     configure_logging()
+    # Fail-safe: never expose the terminal beyond localhost without a password.
+    if not _is_local_host(host) and not AUTH_PASSWORD:
+        raise SystemExit(
+            "Refusing to bind to a public interface without a password.\n"
+            "Set AI_NEWS_RADAR_PASSWORD (and optionally AI_NEWS_RADAR_USER) before "
+            "binding to a non-localhost host. This prevents an unauthenticated "
+            "research terminal from being exposed to the internet."
+        )
     _start_initial_scan_once()
     _start_scheduler_once()
     server = ThreadingHTTPServer((host, port), RadarRequestHandler)
-    print(f"AI News Radar web terminal running at http://{host}:{port}")
+    auth_state = "password-protected" if AUTH_PASSWORD else "no auth (localhost only is safe)"
+    print(f"AI News Radar web terminal running at http://{host}:{port} ({auth_state})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -108,7 +149,19 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
 class RadarRequestHandler(BaseHTTPRequestHandler):
     server_version = "AINewsRadar/0.1"
 
+    def _authorized(self) -> bool:
+        """HTTP Basic gate. No-op when AUTH_PASSWORD is unset (local use)."""
+        if check_basic_auth(self.headers.get("Authorization", ""), AUTH_USER, AUTH_PASSWORD):
+            return True
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self.send_header("WWW-Authenticate", 'Basic realm="AI News Radar"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API.
+        if not self._authorized():
+            return
         route = urlparse(self.path)
         if route.path == "/":
             self._send_file(STATIC_ROOT / "index.html", "text/html; charset=utf-8")
@@ -161,9 +214,24 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
             ticker = query.get("ticker", [""])[0]
             self._send_json(_diagnose_payload(ticker))
             return
+        if route.path == "/api/options_structure":
+            query = parse_qs(route.query)
+            ticker = query.get("ticker", [""])[0]
+            self._send_json(_options_structure_payload(ticker))
+            return
+        if route.path == "/api/market_structure":
+            self._send_json(_market_structure_payload())
+            return
+        if route.path == "/api/holders_progress":
+            query = parse_qs(route.query)
+            ticker = query.get("ticker", [""])[0].upper().strip()
+            self._send_json({"ok": True, **HOLDERS_PROGRESS.get(ticker, {"stage_zh": "排队中", "done": 0, "total": 0})})
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_HEAD(self) -> None:  # noqa: N802 - stdlib handler API.
+        if not self._authorized():
+            return
         route = urlparse(self.path)
         files = {
             "/": (STATIC_ROOT / "index.html", "text/html; charset=utf-8"),
@@ -184,6 +252,8 @@ class RadarRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API.
+        if not self._authorized():
+            return
         route = urlparse(self.path)
         if route.path == "/api/review_status":
             try:
@@ -418,15 +488,31 @@ def _candidate_payload(limit: int = 200) -> dict[str, object]:
 
 def _merge_candidate_rows(primary: list[dict[str, object]], stored: list[dict[str, object]], limit: int) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    seen = set()
+    by_key: dict[str, dict[str, object]] = {}
     for row in [*primary, *stored]:
         if not isinstance(row, dict):
             continue
         key = candidate_row_key(row)
-        if key in seen:
+        previous = by_key.get(key)
+        if previous is not None:
+            current_article = row.get("article")
+            current_article = current_article if isinstance(current_article, dict) else {}
+            prior_article = previous.get("article")
+            prior_article = prior_article if isinstance(prior_article, dict) else {}
+            first_seen = [
+                parse_datetime(str(value or ""))
+                for value in (
+                    previous.get("first_seen_at"), prior_article.get("fetched_at"),
+                    row.get("first_seen_at"), current_article.get("fetched_at"),
+                )
+            ]
+            dated = [value for value in first_seen if value is not None]
+            if dated:
+                previous["first_seen_at"] = min(dated).isoformat()
             continue
-        seen.add(key)
-        rows.append(row)
+        copied = dict(row)
+        by_key[key] = copied
+        rows.append(copied)
     rows.sort(key=lambda row: (float(row.get("score", 0)), _article_value(row, "fetched_at")), reverse=True)
     return rows[:limit]
 
@@ -512,14 +598,23 @@ def _holders_payload(ticker: str) -> dict[str, object]:
         from .financials import load_default_cik_map
         from .reverse_13f import find_institutional_holders
 
+        def report(stage_zh: str, done: int, total: int) -> None:
+            HOLDERS_PROGRESS[symbol] = {"stage_zh": stage_zh, "done": done, "total": total}
+
         try:
             if not CIK_MAP_CACHE:
                 CIK_MAP_CACHE.update(load_default_cik_map())
             company = CIK_MAP_CACHE.get(symbol)
             issuer = str(company.get("name") or "") if company else ""
-            result = find_institutional_holders(issuer) if issuer else {"status": "no_issuer", "holders": []}
+            result = (
+                find_institutional_holders(issuer, progress=report)
+                if issuer
+                else {"status": "no_issuer", "holders": []}
+            )
         except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
             return {"ok": True, "ticker": symbol, "status": "unavailable", "holders": [], "reason": str(exc)[:160]}
+        finally:
+            HOLDERS_PROGRESS.pop(symbol, None)
         HOLDERS_CACHE[symbol] = (_time.time(), result)
         return {"ok": True, "ticker": symbol, **result}
 
@@ -551,10 +646,74 @@ def _diagnose_payload(ticker: str) -> dict[str, object]:
         from .diagnose import diagnose_ticker
 
         try:
-            result = diagnose_ticker(symbol)
+            market = _market_structure_payload()
+            market_context = market if market.get("ok") and market.get("status") == "ok" else None
+            result = diagnose_ticker(symbol, market_context=market_context)
         except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
             return {"ok": False, "ticker": symbol, "error": str(exc)[:200]}
-        DIAGNOSE_CACHE[symbol] = (_time.time(), result)
+        # Never cache a transient rate-limit failure — a single Yahoo 429 would
+        # otherwise pin the ticker to "unavailable" for the full TTL.
+        if not result.get("retryable"):
+            DIAGNOSE_CACHE[symbol] = (_time.time(), result)
+        return {"ok": True, **result}
+
+
+MARKET_STRUCTURE_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+MARKET_STRUCTURE_CACHE_TTL_SECONDS = 30 * 60
+MARKET_STRUCTURE_LOCK = threading.Lock()
+
+
+def _market_structure_payload() -> dict[str, object]:
+    """Market posture (SPY/QQQ gamma + market dark pool + VIX), cached 30 min."""
+    import time as _time
+
+    cached = MARKET_STRUCTURE_CACHE.get("market")
+    if cached is not None and _time.time() - cached[0] < MARKET_STRUCTURE_CACHE_TTL_SECONDS:
+        return {"ok": True, **cached[1]}
+    with MARKET_STRUCTURE_LOCK:
+        cached = MARKET_STRUCTURE_CACHE.get("market")
+        if cached is not None and _time.time() - cached[0] < MARKET_STRUCTURE_CACHE_TTL_SECONDS:
+            return {"ok": True, **cached[1]}
+        from .market_structure import assess_market_structure
+
+        try:
+            result = assess_market_structure()
+        except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
+            return {"ok": False, "error": str(exc)[:200]}
+        MARKET_STRUCTURE_CACHE["market"] = (_time.time(), result)
+        return {"ok": True, **result}
+
+
+HOLDERS_PROGRESS: dict[str, dict[str, object]] = {}
+
+
+OPTIONS_STRUCTURE_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+OPTIONS_STRUCTURE_CACHE_TTL_SECONDS = 30 * 60
+OPTIONS_STRUCTURE_LOCK = threading.Lock()
+
+
+def _options_structure_payload(ticker: str) -> dict[str, object]:
+    """CBOE chain structure (GEX / IV / P-C) for the earnings workbench."""
+    import time as _time
+
+    symbol = str(ticker or "").upper().strip()
+    if not symbol:
+        return {"ok": False, "error": "missing ticker"}
+    cached = OPTIONS_STRUCTURE_CACHE.get(symbol)
+    if cached is not None and _time.time() - cached[0] < OPTIONS_STRUCTURE_CACHE_TTL_SECONDS:
+        return {"ok": True, **cached[1]}
+
+    with OPTIONS_STRUCTURE_LOCK:
+        cached = OPTIONS_STRUCTURE_CACHE.get(symbol)
+        if cached is not None and _time.time() - cached[0] < OPTIONS_STRUCTURE_CACHE_TTL_SECONDS:
+            return {"ok": True, **cached[1]}
+        from .gamma import assess_options_structure
+
+        try:
+            result = assess_options_structure(symbol)
+        except Exception as exc:  # noqa: BLE001 - degrade without breaking the view.
+            return {"ok": False, "ticker": symbol, "error": str(exc)[:200]}
+        OPTIONS_STRUCTURE_CACHE[symbol] = (_time.time(), result)
         return {"ok": True, **result}
 
 

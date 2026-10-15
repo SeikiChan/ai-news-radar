@@ -85,6 +85,85 @@ def fetch_short_volume_series(
     return series
 
 
+def assess_market_positioning(
+    fetcher: object | None = None,
+    cache_dir: Path | None = None,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Market-wide short volume ratio: every symbol in the FINRA file summed.
+
+    The same daily files that power per-ticker positioning aggregate into a
+    free market-level dark-pool sentiment gauge: when the whole tape's short
+    volume ratio rolls over from a high level, market-wide short pressure is
+    easing — a friendlier backdrop for buying punished names.
+    """
+    fetch = fetcher or _fetch_text
+    cache = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
+    moment = (now or datetime.now(MARKET_TZ)).astimezone(MARKET_TZ)
+
+    series: list[dict[str, object]] = []
+    day = moment.date()
+    for _ in range(MAX_CALENDAR_LOOKBACK):
+        if len(series) >= lookback_days:
+            break
+        if day.weekday() < 5:
+            raw = _day_file(day.strftime("%Y%m%d"), fetch, cache)
+            if raw is not None:
+                row = _market_row(raw, day.strftime("%Y-%m-%d"))
+                if row is not None:
+                    series.append(row)
+        day -= timedelta(days=1)
+    series.reverse()
+    if not series:
+        return {
+            "status": "unavailable",
+            "summary_zh": "FINRA 全市场卖空数据不可用。",
+            "source": "FINRA Reg SHO daily short sale volume (market aggregate)",
+        }
+    ratios = [float(row["ratio"]) for row in series]
+    latest = ratios[-1]
+    trend = _trend(ratios)
+    trend_zh = {
+        "rising": "且仍在上升（全市场空头压力增加，接错杀需更谨慎）",
+        "falling": "且正在回落（全市场空头压力缓解）",
+        "flat": "且基本持平",
+        "insufficient_history": "（历史不足）",
+    }[trend]
+    return {
+        "status": "ok",
+        "latest_ratio": latest,
+        "latest_date": series[-1]["date"],
+        "avg_20d": _mean(ratios),
+        "trend": trend,
+        "observations": len(series),
+        "series": series,
+        "summary_zh": f"全市场卖空成交占比 {latest * 100:.1f}%（20日均值 {(_mean(ratios) or 0) * 100:.1f}%）{trend_zh}。",
+        "source": "FINRA Reg SHO daily short sale volume (market aggregate)",
+    }
+
+
+def _market_row(raw: str, date_iso: str) -> dict[str, object] | None:
+    short_total = 0.0
+    volume_total = 0.0
+    for line in raw.splitlines():
+        parts = line.split("|")
+        if len(parts) < 5 or parts[0] == "Date":
+            continue
+        short = _to_float(parts[2])
+        total = _to_float(parts[4])
+        if short is None or total is None:
+            continue
+        short_total += short
+        volume_total += total
+    if volume_total <= 0:
+        return None
+    return {
+        "date": date_iso,
+        "ratio": round(short_total / volume_total, 4),
+    }
+
+
 def _day_file(yyyymmdd: str, fetch: object, cache: Path) -> str | None:
     cached = cache / f"CNMSshvol{yyyymmdd}.txt"
     if cached.exists():

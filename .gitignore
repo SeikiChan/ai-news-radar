@@ -2,12 +2,25 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+.env.*
+!.env.example
 data/*.jsonl
+data/*.json
 data/*.db
 data/*.sqlite
+# FINRA daily short-volume cache (re-downloaded on demand by positioning.py)
+data/finra_short_volume/
 
 # Auto-generated daily report exports (for Claude Desktop scheduled reading)
 reports/
+output/playwright/
+.playwright-cli/
+
+# Local operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
 
 # Build / packaging artifacts
 *.egg-info/

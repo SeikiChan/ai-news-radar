@@ -1,19 +1,19 @@
-"""Options structure from the CBOE delayed full chain: GEX, walls, IV, P/C.
+"""Options structure from the CBOE delayed full chain: GEX proxy, IV, P/C.
 
 CBOE publishes a free delayed-quote JSON for every listed underlying
 (``cdn.cboe.com/api/global/delayed_quotes/options/{ticker}.json``) that already
 includes per-contract greeks (delta/gamma/vega), IV, volume, and open
-interest — so dealer-gamma exposure (GEX) can be aggregated directly without a
-Black-Scholes reimplementation.
+interest. This lets us calculate a signed GEX proxy without recalculating
+Greeks, but it does not reveal actual dealer exposure.
 
-Honesty note baked into every result: GEX uses the standard open-interest
-heuristic (dealers long calls / short puts). Nobody outside the dealers knows
-true positioning; SpotGamma/SqueezeMetrics style products estimate from the
-same OI data. This is a structure estimate, never order-flow truth.
+Honesty note baked into every result: OI does not identify who is long or
+short. The signed GEX proxy uses one explicit convention (calls positive,
+puts negative); it is a scenario estimate, never observed dealer positioning.
 
 Per-contract dollar gamma per 1% move: ``gamma * OI * 100 * spot^2 * 0.01``,
-calls positive / puts negative. The gamma flip is approximated by the zero
-crossing of the cumulative net-GEX profile across strikes.
+calls positive / puts negative. A gamma flip is intentionally not reported:
+the chain's current Greeks cannot be summed across strikes to obtain the
+hypothetical spot at which total GEX crosses zero.
 
 Each successful read appends one daily snapshot per ticker to
 ``data/options_structure_history.jsonl`` so IV rank becomes computable once
@@ -37,8 +37,11 @@ DEFAULT_HISTORY_PATH = Path(__file__).resolve().parents[2] / "data" / "options_s
 
 OCC_RE = re.compile(r"^(?P<root>[A-Z0-9.]{1,6})(?P<date>\d{6})(?P<cp>[CP])(?P<strike>\d{8})$")
 
-#: Strikes further than this from spot are noise for the wall/flip profile.
+#: Strikes further than this from spot are excluded from the peak profile.
 PROFILE_STRIKE_BAND = 0.40
+#: Tighter band + cap for the per-strike chart (readability over completeness).
+CHART_STRIKE_BAND = 0.12
+MAX_CHART_STRIKES = 40
 #: Minimum local snapshots before an IV rank is reported.
 IV_RANK_MIN_HISTORY = 20
 #: Front ATM IV above back ATM IV by this factor counts as an inverted term structure.
@@ -51,7 +54,7 @@ def assess_options_structure(
     history_path: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    """Fetch the full chain and return GEX / walls / IV / P-C structure."""
+    """Fetch the full chain and return a signed GEX proxy / IV / P-C structure."""
     symbol = ticker.strip().upper()
     if not symbol:
         return _unavailable("", "missing ticker")
@@ -70,6 +73,8 @@ def assess_options_structure(
     profile = _gex_profile(contracts, spot)
     pc = _put_call_ratios(contracts)
     term = _atm_term_structure(contracts, spot)
+    strike_map = _strike_map(contracts, spot)
+    strike_chart = _strike_gamma_chart(contracts, spot, profile)
     result = {
         "status": "ok",
         "ticker": symbol,
@@ -79,12 +84,15 @@ def assess_options_structure(
         "gex": profile,
         "put_call": pc,
         "iv_term": term,
+        "strike_map": strike_map,
+        "strike_chart": strike_chart,
         "summary_zh": _summary_zh(symbol, spot, profile, pc, term),
         "source": "CBOE delayed quotes (full chain, greeks included)",
         "source_url": url,
         "source_policy_zh": (
-            "GEX 基于持仓量(OI)与「做市商多 call 空 put」的行业惯例假设推算，"
-            "与 SpotGamma 类产品方法论同源；它是结构估计，不是真实做市商持仓，也不是逐笔订单流。"
+            "数据来自 CBOE 延迟期权链；OI 是未平仓合约数，不显示哪一方买入或卖出。"
+            "净 GEX 采用 calls 正、puts 负的简化符号假设，只是现价下的结构估算，"
+            "不代表真实做市商仓位或逐笔订单流；OI 更新节奏也不等同于行情时间戳。"
         ),
     }
     history = _record_snapshot(result, history_path or DEFAULT_HISTORY_PATH)
@@ -158,14 +166,15 @@ def _gex_profile(contracts: list[dict[str, object]], spot: float) -> dict[str, o
     net_total = sum(b["call"] - b["put"] for b in by_strike.values())
     call_wall = max(strikes, key=lambda s: by_strike[s]["call"])
     put_wall = max(strikes, key=lambda s: by_strike[s]["put"])
-    flip = _flip_level(strikes, by_strike)
-    regime = _regime(spot, flip, net_total)
+    regime = _regime(net_total)
     top = sorted(strikes, key=lambda s: abs(by_strike[s]["call"] - by_strike[s]["put"]), reverse=True)[:8]
     return {
         "status": "ok",
         "net_gex_usd": round(net_total),
         "regime": regime,
-        "flip_level": flip,
+        "flip_level": None,
+        "flip_status": "not_estimated",
+        "flip_reason_zh": "当前只估算现价下的净 GEX；翻转位需要在一系列假设价格下重估整条期权链，不能用按 strike 累加的零点代替。",
         "call_wall": call_wall,
         "put_wall": put_wall,
         "top_strikes": [
@@ -180,28 +189,125 @@ def _gex_profile(contracts: list[dict[str, object]], spot: float) -> dict[str, o
     }
 
 
-def _flip_level(strikes: list[float], by_strike: dict[float, dict[str, float]]) -> float | None:
-    """Zero crossing of the cumulative net-GEX profile (estimate)."""
-    cumulative = 0.0
-    previous_strike: float | None = None
-    previous_cumulative = 0.0
-    for strike in strikes:
-        cumulative += by_strike[strike]["call"] - by_strike[strike]["put"]
-        if previous_strike is not None and previous_cumulative < 0 <= cumulative:
-            span = cumulative - previous_cumulative
-            if span > 0:
-                fraction = -previous_cumulative / span
-                return round(previous_strike + fraction * (strike - previous_strike), 2)
-            return round(strike, 2)
-        previous_strike = strike
-        previous_cumulative = cumulative
-    return None
+def _strike_gamma_chart(
+    contracts: list[dict[str, object]],
+    spot: float,
+    profile: dict[str, object],
+) -> dict[str, object]:
+    """Per-strike chart data: call/put/net GEX + call/put OI + volume.
+
+    This is the "gamma by strike" ladder the UI draws: one row per strike in a
+    tight band around spot, with the signed GEX proxy under the stated OI
+    convention plus raw open interest and volume. It is not dealer positioning.
+    """
+    rows: dict[float, dict[str, float]] = {}
+    lo, hi = spot * (1 - CHART_STRIKE_BAND), spot * (1 + CHART_STRIKE_BAND)
+    for contract in contracts:
+        strike = float(contract["strike"])
+        if not lo <= strike <= hi:
+            continue
+        oi = float(contract["open_interest"])
+        volume = float(contract["volume"])
+        gex = float(contract["gamma"]) * oi * 100 * spot * spot * 0.01
+        row = rows.setdefault(
+            strike,
+            {"call_gex": 0.0, "put_gex": 0.0, "call_oi": 0.0, "put_oi": 0.0, "call_volume": 0.0, "put_volume": 0.0},
+        )
+        if contract["type"] == "call":
+            row["call_gex"] += gex
+            row["call_oi"] += oi
+            row["call_volume"] += volume
+        else:
+            row["put_gex"] += gex
+            row["put_oi"] += oi
+            row["put_volume"] += volume
+
+    if not rows:
+        return {"status": "unavailable"}
+
+    # Keep the strikes nearest spot when there are more than the cap.
+    selected = sorted(rows, key=lambda s: abs(s - spot))[:MAX_CHART_STRIKES]
+    strikes = sorted(selected)
+    bars = [
+        {
+            "strike": strike,
+            "call_gex_usd": round(rows[strike]["call_gex"]),
+            "put_gex_usd": round(rows[strike]["put_gex"]),
+            "net_gex_usd": round(rows[strike]["call_gex"] - rows[strike]["put_gex"]),
+            "call_oi": round(rows[strike]["call_oi"]),
+            "put_oi": round(rows[strike]["put_oi"]),
+            "call_volume": round(rows[strike]["call_volume"]),
+            "put_volume": round(rows[strike]["put_volume"]),
+        }
+        for strike in strikes
+    ]
+    gex = profile if isinstance(profile, dict) else {}
+    return {
+        "status": "ok",
+        "spot": spot,
+        "flip_level": gex.get("flip_level"),
+        "call_wall": gex.get("call_wall"),
+        "put_wall": gex.get("put_wall"),
+        "net_gex_usd": gex.get("net_gex_usd"),
+        "regime": gex.get("regime"),
+        "bars": bars,
+    }
 
 
-def _regime(spot: float, flip: float | None, net_total: float) -> str:
-    if flip is None:
-        return "positive_gamma" if net_total >= 0 else "negative_gamma"
-    return "positive_gamma" if spot >= flip else "negative_gamma"
+def _regime(net_total: float) -> str:
+    """Classify only the current-spot signed GEX proxy, not dealer positioning."""
+    return "positive_gamma" if net_total >= 0 else "negative_gamma"
+
+
+def _strike_map(contracts: list[dict[str, object]], spot: float) -> dict[str, object]:
+    """Where the open interest sits and where today's volume went, by strike.
+
+    Reports where open interest and daily volume are largest. Neither measure
+    reveals trade direction, so these strikes are not support/resistance or a
+    map of where buyers are active.
+    """
+    by_strike: dict[float, dict[str, float]] = {}
+    lo, hi = spot * (1 - PROFILE_STRIKE_BAND), spot * (1 + PROFILE_STRIKE_BAND)
+    for contract in contracts:
+        strike = float(contract["strike"])
+        if not lo <= strike <= hi:
+            continue
+        bucket = by_strike.setdefault(strike, {"call_oi": 0.0, "put_oi": 0.0, "call_volume": 0.0, "put_volume": 0.0})
+        prefix = "call" if contract["type"] == "call" else "put"
+        bucket[f"{prefix}_oi"] += float(contract["open_interest"])
+        bucket[f"{prefix}_volume"] += float(contract["volume"])
+
+    if not by_strike:
+        return {"status": "unavailable"}
+
+    def row(strike: float) -> dict[str, object]:
+        b = by_strike[strike]
+        return {
+            "strike": strike,
+            "call_oi": round(b["call_oi"]),
+            "put_oi": round(b["put_oi"]),
+            "call_volume": round(b["call_volume"]),
+            "put_volume": round(b["put_volume"]),
+        }
+
+    strikes = list(by_strike)
+    top_oi = sorted(strikes, key=lambda s: by_strike[s]["call_oi"] + by_strike[s]["put_oi"], reverse=True)[:7]
+    top_volume = sorted(strikes, key=lambda s: by_strike[s]["call_volume"] + by_strike[s]["put_volume"], reverse=True)[:5]
+    max_call_oi = max(strikes, key=lambda s: by_strike[s]["call_oi"])
+    max_put_oi = max(strikes, key=lambda s: by_strike[s]["put_oi"])
+    max_volume = max(strikes, key=lambda s: by_strike[s]["call_volume"] + by_strike[s]["put_volume"])
+    return {
+        "status": "ok",
+        "top_oi": [row(s) for s in sorted(top_oi)],
+        "top_volume": [row(s) for s in sorted(top_volume)],
+        "max_call_oi_strike": max_call_oi,
+        "max_put_oi_strike": max_put_oi,
+        "max_volume_strike": max_volume,
+        "summary_zh": (
+            f"未平仓量最高的 strike：call ${max_call_oi} / put ${max_put_oi}；"
+            f"当日成交量最高的 strike：${max_volume}。OI 与成交量都不区分买卖方向，不能单独当作支撑/阻力。"
+        ),
+    }
 
 
 def _put_call_ratios(contracts: list[dict[str, object]]) -> dict[str, object]:
@@ -305,16 +411,14 @@ def _summary_zh(
 ) -> str:
     parts = []
     if profile.get("status") == "ok":
-        regime_zh = "正gamma区（做市商对冲压制波动）" if profile["regime"] == "positive_gamma" else "负gamma区（对冲放大波动，易超跌/超涨）"
-        flip = profile.get("flip_level")
-        flip_zh = f"，gamma 翻转位≈{flip}" if flip is not None else ""
+        regime_zh = "假设口径下净 GEX 为正" if profile["regime"] == "positive_gamma" else "假设口径下净 GEX 为负"
         parts.append(
-            f"{symbol} 现价 {spot} 处于{regime_zh}{flip_zh}；call wall={profile['call_wall']}，put wall={profile['put_wall']}。"
+            f"{symbol} 现价 {spot}：{regime_zh}；call GEX 峰值=${profile['call_wall']}，put GEX 峰值=${profile['put_wall']}。"
         )
     oi_ratio = pc.get("oi_ratio")
     if oi_ratio is not None:
-        bias = "put 堆积偏重（对冲/看空仓位多）" if oi_ratio > 1.1 else "call 堆积偏重（看多仓位多）" if oi_ratio < 0.7 else "多空持仓大致均衡"
-        parts.append(f"P/C 持仓比={oi_ratio}，{bias}。")
+        bias = "put 合约未平仓量较多" if oi_ratio > 1.1 else "call 合约未平仓量较多" if oi_ratio < 0.7 else "put/call 未平仓量接近"
+        parts.append(f"P/C OI={oi_ratio}，{bias}；OI 不显示持仓方向。")
     if term.get("status") == "ok" and term.get("inverted"):
         front = term["front"]
         parts.append(f"近月 ATM IV {float(front['atm_iv'])*100:.0f}% 高于远月，期限结构倒挂：市场在为短期恐慌定价。")

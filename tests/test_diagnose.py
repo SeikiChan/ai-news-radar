@@ -2,7 +2,7 @@ import json
 import urllib.error
 from datetime import datetime, timezone
 
-from src.abnormal_news_radar.diagnose import diagnose_ticker
+from src.abnormal_news_radar.diagnose import _options_points, diagnose_ticker
 
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
 
@@ -145,6 +145,46 @@ def test_full_diagnosis_composes_all_components(tmp_path):
     names = [component["name"] for component in result["score_components"]]
     assert names == ["跌幅归因", "卖压衰竭", "空头行为", "期权结构", "基本面证据"]
     assert result["triggers_zh"]
+    plan = result["action_plan"]
+    assert plan["stance"] in {"plan_entry", "watch", "stand_aside"}
+    assert plan["levels"], "levels must come from the options OI map"
+    assert any("不代表支撑位" in level["label_zh"] for level in plan["levels"])
+    assert plan["playbook_zh"]
+    assert "大盘" in plan["market_adjustment_zh"]
+    assert result["components"]["market_structure"]
+
+
+def test_hostile_market_requires_confirmation(tmp_path):
+    _write_signals(tmp_path)
+    hostile_market = {"status": "ok", "posture": "hostile", "posture_zh": "不友好", "vix": {"status": "ok", "vix": 30.0, "regime": "fear", "summary_zh": "VIX=30"}}
+    result = diagnose_ticker(
+        "CRDO",
+        chart_fetcher=_chart_fetcher(),
+        finra_fetcher=_finra_fetcher(),
+        cboe_fetcher=_cboe_fetcher,
+        yahoo_fetcher=_yahoo_fetcher,
+        data_dir=tmp_path,
+        now=NOW,
+        market_context=hostile_market,
+    )
+    assert "连续 2 个收盘确认" in result["action_plan"]["market_adjustment_zh"]
+
+
+def test_oi_sign_does_not_score_market_direction():
+    positive = _options_points({
+        "status": "ok",
+        "gex": {"regime": "positive_gamma"},
+        "iv_term": {"status": "ok", "inverted": False},
+        "put_call": {"oi_ratio": 0.5},
+    })
+    negative = _options_points({
+        "status": "ok",
+        "gex": {"regime": "negative_gamma"},
+        "iv_term": {"status": "ok", "inverted": False},
+        "put_call": {"oi_ratio": 3.0},
+    })
+    assert positive["points"] == negative["points"] == 0
+    assert "不计入方向分" in positive["reason_zh"]
 
 
 def test_sector_driven_drop_scores_high(tmp_path):
