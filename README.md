@@ -11,6 +11,8 @@
 
 > **Research use only — not investment advice.** Data can be delayed or incorrect. Verify important information against its original source.
 
+If AI News Radar is useful to your research workflow, please consider giving the repository a ⭐. It helps others discover the project and supports continued development.
+
 AI News Radar monitors public company, market, and technology sources, then organizes potential business signals into a reviewable research workflow. It is designed to help an analyst move from a broad theme to verifiable evidence such as customer orders, production qualification, capacity commitments, or disclosed demand.
 
 The application runs on your computer. It does not require a hosted account, database, or paid data subscription for its core workflow.
